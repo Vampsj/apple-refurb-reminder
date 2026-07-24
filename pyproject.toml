@@ -1,0 +1,33 @@
+[project]
+name = "apple-refurb-reminder"
+version = "0.1.0"
+description = "Monitor Apple Japan refurbished listings and send stock notifications."
+requires-python = ">=3.13"
+dependencies = ["PyYAML>=6.0.2"]
+
+[project.scripts]
+apple-refurb-reminder = "apple_refurb_reminder.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "ruff>=0.9"]
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.9"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apple_refurb_reminder"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

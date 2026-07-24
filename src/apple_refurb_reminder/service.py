@@ -1,0 +1,182 @@
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import asdict
+from datetime import datetime
+from typing import Any
+
+from .apple import AppleJapanAdapter
+from .config import Settings
+from .matcher import matches, missing_required
+from .models import Listing, Match
+from .notify import DiscordChannel, EmailChannel, render_batch
+from .state import StateStore, prune_state, utc_now
+
+LOGGER = logging.getLogger(__name__)
+
+
+class Monitor:
+    def __init__(self, settings: Settings, adapter: AppleJapanAdapter | None = None) -> None:
+        self.settings = settings
+        self.adapter = adapter or AppleJapanAdapter(
+            detail_concurrency=settings.detail_concurrency
+        )
+
+    def check(
+        self,
+        state: dict[str, Any],
+        *,
+        send: bool,
+        test_if_empty: bool = False,
+    ) -> list[Match]:
+        started = time.monotonic()
+        summaries, listings, detail_errors = self.adapter.observe()
+        summary_ids = {summary.id for summary in summaries}
+        listing_by_id = {listing.id: listing for listing in listings}
+        now = utc_now()
+        new_matches: list[Match] = []
+
+        for subscription in self.settings.subscriptions:
+            matching_ids: set[str] = set()
+            for listing in listings:
+                if missing_required(listing):
+                    continue
+                if not matches(subscription, listing):
+                    continue
+                matching_ids.add(listing.id)
+                key = f"{subscription.id}:{listing.id}"
+                record = state["listings"].get(key)
+                is_appearance = record is None or not record.get("present", False)
+                state["listings"][key] = {
+                    "subscription_id": subscription.id,
+                    "listing_id": listing.id,
+                    "listing": listing.to_dict(),
+                    "present": True,
+                    "misses": 0,
+                    "last_seen_at": now.isoformat(),
+                    "confirmed_absent_at": None,
+                }
+                if is_appearance:
+                    new_matches.append(Match(subscription.id, listing))
+
+            for _key, record in list(state["listings"].items()):
+                if record["subscription_id"] != subscription.id or not record.get("present"):
+                    continue
+                listing_id = record["listing_id"]
+                if listing_id in matching_ids:
+                    continue
+                if listing_id in summary_ids and listing_id in listing_by_id:
+                    # Present but no longer matches this subscription.
+                    record["present"] = False
+                    record["misses"] = 2
+                    record["confirmed_absent_at"] = now.isoformat()
+                elif listing_id not in summary_ids:
+                    record["misses"] = int(record.get("misses", 0)) + 1
+                    if record["misses"] >= 2:
+                        record["present"] = False
+                        record["confirmed_absent_at"] = now.isoformat()
+
+        state["last_successful_check"] = now.isoformat()
+        if detail_errors:
+            LOGGER.warning("詳細を評価できない商品: %s", detail_errors)
+        if new_matches:
+            batch = self._new_batch(new_matches, now)
+            state["batches"].append(batch)
+            if send:
+                self._deliver(batch, new_matches)
+        elif test_if_empty and send:
+            self._deliver_test(now)
+        prune_state(state, now)
+        LOGGER.info(
+            "チェック完了 catalog=%d details=%d matched=%d new=%d errors=%d duration=%.2fs",
+            len(summaries),
+            len(listings),
+            sum(
+                matches(subscription, listing)
+                for subscription in self.settings.subscriptions
+                for listing in listings
+            ),
+            len(new_matches),
+            len(detail_errors),
+            time.monotonic() - started,
+        )
+        return new_matches
+
+    def _new_batch(self, values: list[Match], now: datetime) -> dict[str, Any]:
+        channels: dict[str, str] = {}
+        if self.settings.discord_webhook:
+            channels["discord"] = "pending"
+        if self.settings.smtp_host:
+            channels["email"] = "pending"
+        return {
+            "id": f"batch-{int(now.timestamp())}",
+            "created_at": now.isoformat(),
+            "matches": [
+                {"subscription_id": value.subscription_id, "listing": asdict(value.listing)}
+                for value in values
+            ],
+            "channels": channels,
+        }
+
+    def _deliver(self, batch_state: dict[str, Any], values: list[Match]) -> None:
+        rendered = render_batch(
+            values,
+            datetime.fromisoformat(batch_state["created_at"]),
+            self.settings.display_timezone,
+        )
+        if batch_state["channels"].get("discord") == "pending":
+            try:
+                DiscordChannel(self.settings.discord_webhook or "").send(rendered)
+                batch_state["channels"]["discord"] = "sent"
+            except Exception:
+                LOGGER.exception("Discord 通知に失敗しました")
+        if batch_state["channels"].get("email") == "pending":
+            try:
+                EmailChannel(self.settings).send(rendered)
+                batch_state["channels"]["email"] = "sent"
+            except Exception:
+                LOGGER.exception("Email 通知に失敗しました")
+
+    def _deliver_test(self, now: datetime) -> None:
+        rendered = render_batch([], now, self.settings.display_timezone, test=True)
+        if self.settings.discord_webhook:
+            DiscordChannel(self.settings.discord_webhook).send(rendered)
+        if self.settings.smtp_host:
+            EmailChannel(self.settings).send(rendered)
+
+    def retry_pending(self, state: dict[str, Any]) -> None:
+        for batch in state["batches"]:
+            if not any(value == "pending" for value in batch["channels"].values()):
+                continue
+            values = [
+                Match(row["subscription_id"], Listing.from_dict(row["listing"]))
+                for row in batch["matches"]
+                if state["listings"].get(
+                    f"{row['subscription_id']}:{row['listing']['id']}", {}
+                ).get("present", False)
+            ]
+            if not values:
+                for channel, status in batch["channels"].items():
+                    if status == "pending":
+                        batch["channels"][channel] = "expired"
+                continue
+            self._deliver(batch, values)
+
+
+def run_forever(settings: Settings) -> None:
+    monitor = Monitor(settings)
+    with StateStore(settings.state_file) as store:
+        state = store.load()
+        while True:
+            try:
+                monitor.retry_pending(state)
+                monitor.check(state, send=True)
+                store.save(state)
+            except KeyboardInterrupt:
+                store.save(state)
+                return
+            except Exception:
+                LOGGER.exception("監視チェックに失敗しました")
+                store.save(state)
+            time.sleep(settings.check_interval_seconds)

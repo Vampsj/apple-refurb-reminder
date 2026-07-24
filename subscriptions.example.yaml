@@ -1,0 +1,10 @@
+schema_version: 1
+subscriptions:
+  - id: m5-pro-48gb-1tb-14
+    product: MacBook Pro
+    display_size_inches: 14
+    chip: M5 Pro
+    cpu_cores: 15
+    gpu_cores: 16
+    memory_gb: 48
+    storage: 1TB
