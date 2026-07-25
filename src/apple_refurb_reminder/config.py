@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from .models import Subscription
+from .models import ProductCategory, Region, Subscription, WatchRule
 
 ENV_KEYS = {
     "APPLE_REGION",
@@ -37,6 +37,26 @@ SUBSCRIPTION_KEYS = {
     "memory_gb",
     "storage",
 }
+V2_TOP_LEVEL_KEYS = {"schema_version", "region", "rules"}
+RULE_KEYS = {
+    "id",
+    "category",
+    "model",
+    "display_size_inches",
+    "chip",
+    "cpu_cores",
+    "gpu_cores",
+    "memory_gb",
+    "storage",
+    "color",
+    "connectivity",
+}
+REGION_DEFAULTS = {
+    Region.JP: ("ja-JP", "Asia/Tokyo"),
+    Region.US: ("en-US", "America/Los_Angeles"),
+    Region.CN: ("zh-CN", "Asia/Shanghai"),
+    Region.HK: ("zh-HK", "Asia/Hong_Kong"),
+}
 
 
 class ConfigError(ValueError):
@@ -60,7 +80,7 @@ class Settings:
     email_from: str | None
     email_to: str | None
     smtp_use_tls: bool
-    subscriptions: tuple[Subscription, ...]
+    subscriptions: tuple[WatchRule, ...]
     fingerprint: str
 
 
@@ -97,14 +117,80 @@ def _bool(values: dict[str, str], key: str, default: bool) -> bool:
     return raw == "true"
 
 
-def _load_subscriptions(path: Path) -> tuple[Subscription, ...]:
+def _positive_optional(row: dict[str, object], field: str, rule_id: str) -> None:
+    value = row.get(field)
+    if value is not None and (not isinstance(value, int) or isinstance(value, bool) or value <= 0):
+        raise ConfigError(f"{rule_id}.{field} must be a positive integer or null")
+
+
+def _load_v2(root: dict[str, object]) -> tuple[Region, tuple[WatchRule, ...]]:
+    if set(root) != V2_TOP_LEVEL_KEYS:
+        raise ConfigError(
+            "schema v2 top-level fields must be schema_version, region, and rules"
+        )
+    try:
+        region = Region(str(root["region"]).upper())
+    except ValueError as exc:
+        raise ConfigError("region must be one of JP, US, CN, or HK") from exc
+    rows = root["rules"]
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 3:
+        raise ConfigError("rules must contain between 1 and 3 entries")
+    rules: list[WatchRule] = []
+    ids: set[str] = set()
+    for index, raw in enumerate(rows):
+        if not isinstance(raw, dict):
+            raise ConfigError(f"rules[{index}] must be an object")
+        unknown = set(raw) - RULE_KEYS
+        required = {"id", "category", "model"} - set(raw)
+        if unknown or required:
+            raise ConfigError(
+                f"rules[{index}] has invalid fields "
+                f"(unknown={sorted(unknown)}, missing={sorted(required)})"
+            )
+        rule_id = raw["id"]
+        model = raw["model"]
+        if not isinstance(rule_id, str) or not rule_id.strip():
+            raise ConfigError(f"rules[{index}].id must be a non-empty string")
+        if rule_id in ids:
+            raise ConfigError(f"duplicate rule id: {rule_id}")
+        if not isinstance(model, str) or not model.strip():
+            raise ConfigError(f"{rule_id}.model must be a non-empty string")
+        try:
+            category = ProductCategory(str(raw["category"]).lower())
+        except ValueError as exc:
+            raise ConfigError(f"{rule_id}.category must be mac, iphone, or ipad") from exc
+        for field in (
+            "display_size_inches",
+            "cpu_cores",
+            "gpu_cores",
+            "memory_gb",
+        ):
+            _positive_optional(raw, field, rule_id)
+        kwargs = {key: raw.get(key) for key in RULE_KEYS - {"id", "category", "model"}}
+        rules.append(
+            WatchRule(
+                id=rule_id,
+                category=category,
+                model=model.strip(),
+                **kwargs,
+            )
+        )
+        ids.add(rule_id)
+    return region, tuple(rules)
+
+
+def _load_subscriptions(path: Path) -> tuple[Region, tuple[WatchRule, ...]]:
     if not path.exists():
         raise ConfigError(f"購読設定が見つかりません: {path}")
     try:
         root = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise ConfigError(f"購読設定を解析できません: {exc}") from exc
-    if not isinstance(root, dict) or set(root) != {"schema_version", "subscriptions"}:
+    if not isinstance(root, dict):
+        raise ConfigError("watch configuration must be an object")
+    if root.get("schema_version") == 2:
+        return _load_v2(root)
+    if set(root) != {"schema_version", "subscriptions"}:
         raise ConfigError("購読設定のトップレベル項目は schema_version と subscriptions のみです")
     if root["schema_version"] != 1:
         raise ConfigError("未対応の購読 schema_version です")
@@ -145,7 +231,7 @@ def _load_subscriptions(path: Path) -> tuple[Subscription, ...]:
                 raise ConfigError(f"{subscription.id}.{name} は正の整数で指定してください")
         ids.add(subscription.id)
         subscriptions.append(subscription)
-    return tuple(subscriptions)
+    return Region.JP, tuple(value.to_watch_rule() for value in subscriptions)
 
 
 def load_settings(
@@ -162,12 +248,23 @@ def load_settings(
         raise ConfigError(f"不明な環境設定: {unknown_apple}")
 
     interval = _int(values, "CHECK_INTERVAL_SECONDS", 600)
-    if interval < 60:
-        raise ConfigError("CHECK_INTERVAL_SECONDS は60以上で指定してください")
+    if interval < 300:
+        raise ConfigError("CHECK_INTERVAL_SECONDS must be at least 300 (5 minutes)")
     concurrency = _int(values, "DETAIL_CONCURRENCY", 3)
     if not 1 <= concurrency <= 10:
         raise ConfigError("DETAIL_CONCURRENCY は1から10で指定してください")
-    subscriptions = _load_subscriptions(subscriptions_path)
+    configured_region, subscriptions = _load_subscriptions(subscriptions_path)
+    env_region = values.get("APPLE_REGION")
+    if env_region:
+        try:
+            selected_region = Region(env_region.upper())
+        except ValueError as exc:
+            raise ConfigError("APPLE_REGION must be one of JP, US, CN, or HK") from exc
+        if selected_region != configured_region:
+            raise ConfigError("APPLE_REGION conflicts with the region in the watch configuration")
+    else:
+        selected_region = configured_region
+    default_locale, default_timezone = REGION_DEFAULTS[selected_region]
     discord = values.get("DISCORD_WEBHOOK") or None
     smtp_host = values.get("SMTP_HOST") or None
     email_fields = {
@@ -179,9 +276,9 @@ def load_settings(
     if smtp_host and not all(email_fields.values()):
         raise ConfigError("SMTP を使う場合は認証情報と EMAIL_FROM/EMAIL_TO が必要です")
     public = {
-        "region": values.get("APPLE_REGION", "JP"),
-        "locale": values.get("APPLE_LOCALE", "ja-JP"),
-        "timezone": values.get("DISPLAY_TIMEZONE", "Asia/Tokyo"),
+        "region": selected_region.value,
+        "locale": values.get("APPLE_LOCALE", default_locale),
+        "timezone": values.get("DISPLAY_TIMEZONE", default_timezone),
         "interval": interval,
         "state": values.get("STATE_FILE", "./data/state.json"),
         "subscriptions": [subscription.id for subscription in subscriptions],

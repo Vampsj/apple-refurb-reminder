@@ -7,8 +7,10 @@ from pathlib import Path
 
 from .config import ConfigError, Settings, load_settings
 from .logging_setup import configure_logging
+from .models import Region
 from .notify import DiscordChannel, EmailChannel, render_batch
 from .service import Monitor, run_forever
+from .setup_config import add_rule, make_rule, read_watch_config, remove_rule
 from .state import StateError, StateStore, empty_state, utc_now
 
 
@@ -27,6 +29,18 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("status")
     reset = sub.add_parser("reset-state")
     reset.add_argument("--yes", action="store_true")
+    setup = sub.add_parser("setup", help="Manage watch rules and notification settings")
+    setup_sub = setup.add_subparsers(dest="setup_command", required=True)
+    setup_sub.add_parser("list", help="List the configured region and watch rules")
+    add = setup_sub.add_parser("add", help="Add a watch rule (maximum: 3)")
+    add.add_argument("--region", choices=[value.value for value in Region])
+    add.add_argument("--id")
+    add.add_argument("--category", choices=["mac", "iphone", "ipad"])
+    add.add_argument("--model")
+    add.add_argument("--storage")
+    add.add_argument("--color")
+    remove = setup_sub.add_parser("remove", help="Remove a watch rule")
+    remove.add_argument("rule_id")
     return parser
 
 
@@ -37,6 +51,41 @@ def _load(args: argparse.Namespace) -> Settings:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "setup":
+            if args.setup_command == "list":
+                region, rules = read_watch_config(args.subscriptions)
+                print(f"Region: {region.value}")
+                for rule in rules:
+                    criteria = [
+                        f"{key}={value}"
+                        for key, value in (
+                            ("storage", rule.storage),
+                            ("color", rule.color),
+                        )
+                        if value is not None
+                    ]
+                    suffix = f" ({', '.join(criteria)})" if criteria else " (Any configuration)"
+                    print(f"- {rule.id}: {rule.category.value} / {rule.model}{suffix}")
+                return 0
+            if args.setup_command == "add":
+                region = args.region or input("Region [JP/US/CN/HK]: ").strip().upper()
+                rule_id = args.id or input("Rule ID: ").strip()
+                category = args.category or input("Category [mac/iphone/ipad]: ").strip()
+                model = args.model or input("Exact model name: ").strip()
+                rule = make_rule(
+                    rule_id=rule_id,
+                    category=category,
+                    model=model,
+                    storage=args.storage,
+                    color=args.color,
+                )
+                add_rule(args.subscriptions, Region(region), rule)
+                print(f"Added rule {rule.id}. Current matching stock will notify immediately.")
+                return 0
+            if args.setup_command == "remove":
+                remove_rule(args.subscriptions, args.rule_id)
+                print(f"Removed rule {args.rule_id}.")
+                return 0
         settings = _load(args)
         configure_logging(settings.log_dir, args.verbose)
         if args.command == "validate-config":
