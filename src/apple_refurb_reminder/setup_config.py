@@ -92,6 +92,12 @@ def make_rule(
     model: str,
     storage: str | None = None,
     color: str | None = None,
+    display_size_inches: int | None = None,
+    chip: str | None = None,
+    cpu_cores: int | None = None,
+    gpu_cores: int | None = None,
+    memory_gb: int | None = None,
+    connectivity: str | None = None,
 ) -> WatchRule:
     try:
         parsed_category = ProductCategory(category.lower())
@@ -101,6 +107,12 @@ def make_rule(
         id=rule_id.strip(),
         category=parsed_category,
         model=model.strip(),
+        display_size_inches=display_size_inches,
+        chip=chip,
+        cpu_cores=cpu_cores,
+        gpu_cores=gpu_cores,
+        memory_gb=memory_gb,
         storage=storage.strip() if storage else None,
         color=color.strip() if color else None,
+        connectivity=connectivity.strip() if connectivity else None,
     )

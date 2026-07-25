@@ -115,7 +115,7 @@ def _model_from_title(title: str, category: ProductCategory) -> str | None:
             r"(MacBook\s+Pro|MacBook\s+Air|MacBook\s+Neo|"
             r"Mac\s+mini|Mac\s+Studio|Mac\s+Pro|iMac)"
         ),
-        ProductCategory.IPHONE: r"(iPhone\s+\d+(?:\s+(?:Pro|Plus|Pro\s+Max|mini))?)",
+        ProductCategory.IPHONE: r"(iPhone\s+\d+(?:\s+(?:Pro\s+Max|Pro|Plus|mini))?)",
         ProductCategory.IPAD: (
             r"(iPad\s+(?:Pro|Air|mini)\s+\d+(?:\.\d+)?"
             r"(?:-inch|\s*英寸|\s*吋|\s*インチ)|iPad\s+(?:Pro|Air|mini)|iPad)"

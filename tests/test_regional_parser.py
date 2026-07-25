@@ -109,6 +109,17 @@ def test_adapter_fetches_only_categories_used_by_rules() -> None:
     assert errors == {}
 
 
+def test_keeps_iphone_pro_max_as_distinct_model() -> None:
+    summary = parse_catalog(
+        catalog_html(
+            "Refurbished iPhone 16 Pro Max 256GB - Natural Titanium",
+            {"dimensionCapacity": "256gb"},
+        ),
+        category=ProductCategory.IPHONE,
+    )[0]
+    assert listing_from_summary(summary).product == "iPhone 16 Pro Max"
+
+
 def test_one_category_failure_does_not_discard_another() -> None:
     rules = (
         WatchRule("mac", ProductCategory.MAC, "MacBook Pro"),
