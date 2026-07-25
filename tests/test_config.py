@@ -94,3 +94,47 @@ def test_rejects_env_region_conflict(tmp_path: Path) -> None:
     env.write_text("APPLE_REGION=JP")
     with pytest.raises(ConfigError, match="conflicts"):
         load_settings(env, config)
+
+
+def test_loads_v2_notification_secrets_from_store(tmp_path: Path) -> None:
+    subscriptions = tmp_path / "subscriptions.yaml"
+    write_subscription(subscriptions)
+    env = tmp_path / ".env"
+    env.write_text("NOTIFICATION_MODE=discord\n")
+
+    class Store:
+        def get(self, key: str) -> str | None:
+            return "https://discord.test/secret" if key == "discord_webhook" else None
+
+        def set(self, key: str, value: str) -> None:
+            raise AssertionError("load must not write secrets")
+
+    value = load_settings(env, subscriptions, secret_store=Store())
+    assert value.discord_webhook == "https://discord.test/secret"
+
+
+def test_notification_mode_disables_unselected_stale_channel(tmp_path: Path) -> None:
+    subscriptions = tmp_path / "subscriptions.yaml"
+    write_subscription(subscriptions)
+    env = tmp_path / ".env"
+    env.write_text(
+        "NOTIFICATION_MODE=discord\n"
+        "SMTP_HOST=smtp.gmail.com\n"
+        "SMTP_USERNAME=old@gmail.com\n"
+        "EMAIL_FROM=old@gmail.com\n"
+        "EMAIL_TO=old@gmail.com\n"
+    )
+
+    class Store:
+        def get(self, key: str) -> str | None:
+            return {
+                "discord_webhook": "https://discord.test/current",
+                "smtp_password": "stale-password",
+            }.get(key)
+
+        def set(self, key: str, value: str) -> None:
+            raise AssertionError
+
+    value = load_settings(env, subscriptions, secret_store=Store())
+    assert value.discord_webhook is not None
+    assert value.smtp_host is None

@@ -11,6 +11,7 @@ from .models import Region
 from .notify import DiscordChannel, EmailChannel, render_batch
 from .service import Monitor, run_forever
 from .setup_config import add_rule, make_rule, read_watch_config, remove_rule
+from .setup_notifications import configure_notifications
 from .setup_wizard import interactive_add_rule
 from .state import StateError, StateStore, empty_state, utc_now
 
@@ -42,6 +43,10 @@ def _parser() -> argparse.ArgumentParser:
     add.add_argument("--color")
     remove = setup_sub.add_parser("remove", help="Remove a watch rule")
     remove.add_argument("rule_id")
+    setup_sub.add_parser(
+        "notifications",
+        help="Configure and test Discord, Email, or both",
+    )
     return parser
 
 
@@ -92,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
             if args.setup_command == "remove":
                 remove_rule(args.subscriptions, args.rule_id)
                 print(f"Removed rule {args.rule_id}.")
+                return 0
+            if args.setup_command == "notifications":
+                configure_notifications(args.env, args.subscriptions)
                 return 0
         settings = _load(args)
         configure_logging(settings.log_dir, args.verbose)

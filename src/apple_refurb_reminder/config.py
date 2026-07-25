@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from .models import ProductCategory, Region, Subscription, WatchRule
+from .secrets import SecretStore, default_secret_store
 
 ENV_KEYS = {
     "APPLE_REGION",
@@ -26,6 +27,7 @@ ENV_KEYS = {
     "EMAIL_FROM",
     "EMAIL_TO",
     "SMTP_USE_TLS",
+    "NOTIFICATION_MODE",
 }
 SUBSCRIPTION_KEYS = {
     "id",
@@ -237,6 +239,7 @@ def _load_subscriptions(path: Path) -> tuple[Region, tuple[WatchRule, ...]]:
 def load_settings(
     env_path: Path = Path(".env"),
     subscriptions_path: Path = Path("subscriptions.yaml"),
+    secret_store: SecretStore | None = None,
 ) -> Settings:
     file_values = _read_dotenv(env_path)
     values = {key: os.environ.get(key, value) for key, value in file_values.items()}
@@ -265,16 +268,34 @@ def load_settings(
     else:
         selected_region = configured_region
     default_locale, default_timezone = REGION_DEFAULTS[selected_region]
-    discord = values.get("DISCORD_WEBHOOK") or None
+    notification_mode = values.get("NOTIFICATION_MODE")
+    if notification_mode and notification_mode not in {"discord", "email", "both"}:
+        raise ConfigError("NOTIFICATION_MODE must be discord, email, or both")
+    if notification_mode:
+        store = secret_store or default_secret_store()
+        stored_discord = store.get("discord_webhook")
+        stored_smtp_password = store.get("smtp_password")
+    else:
+        stored_discord = None
+        stored_smtp_password = None
+    discord = values.get("DISCORD_WEBHOOK") or stored_discord or None
     smtp_host = values.get("SMTP_HOST") or None
     email_fields = {
         "SMTP_USERNAME": values.get("SMTP_USERNAME"),
-        "SMTP_PASSWORD": values.get("SMTP_PASSWORD"),
+        "SMTP_PASSWORD": values.get("SMTP_PASSWORD") or stored_smtp_password,
         "EMAIL_FROM": values.get("EMAIL_FROM"),
         "EMAIL_TO": values.get("EMAIL_TO"),
     }
+    if notification_mode and notification_mode not in {"discord", "both"}:
+        discord = None
+    if notification_mode and notification_mode not in {"email", "both"}:
+        smtp_host = None
     if smtp_host and not all(email_fields.values()):
         raise ConfigError("SMTP を使う場合は認証情報と EMAIL_FROM/EMAIL_TO が必要です")
+    if notification_mode in {"discord", "both"} and not discord:
+        raise ConfigError("Discord is selected but its webhook is missing from the secret store")
+    if notification_mode in {"email", "both"} and not smtp_host:
+        raise ConfigError("Email is selected but its SMTP settings are incomplete")
     public = {
         "region": selected_region.value,
         "locale": values.get("APPLE_LOCALE", default_locale),
