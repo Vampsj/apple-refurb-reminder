@@ -2,6 +2,15 @@
 
 Apple 日本の整備済 MacBook Pro 在庫を監視し、Discord と Email に通知する CLI です。
 
+> [!IMPORTANT]
+> Version 0.1 is a working early release for one Japan MacBook Pro rule.
+> Public V1 is under development and will add an English setup wizard, up to
+> three rules, JP/US/CN/HK regions, and Mac/iPhone/iPad support.
+
+This is an independent open-source project and is not affiliated with or
+endorsed by Apple Inc. Use it responsibly and comply with Apple's website
+terms and applicable local rules. The project collects no telemetry.
+
 ## Mac mini 一键安装
 
 Mac mini 建议关闭自动睡眠并保持联网。克隆仓库后，在项目目录运行：
