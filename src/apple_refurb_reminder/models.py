@@ -95,7 +95,11 @@ class Listing:
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Listing:
-        return cls(**value)
+        normalized = dict(value)
+        normalized["category"] = ProductCategory(
+            normalized.get("category", ProductCategory.MAC)
+        )
+        return cls(**normalized)
 
 
 @dataclass(frozen=True, slots=True)

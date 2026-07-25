@@ -1,10 +1,11 @@
+from datetime import timedelta
 from pathlib import Path
 
 from apple_refurb_reminder.apple import AppleJapanAdapter
 from apple_refurb_reminder.config import Settings
 from apple_refurb_reminder.models import Subscription
 from apple_refurb_reminder.service import Monitor
-from apple_refurb_reminder.state import empty_state
+from apple_refurb_reminder.state import empty_state, prune_state, utc_now
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CATALOG = (FIXTURES / "catalog.html").read_text()
@@ -74,3 +75,14 @@ def test_category_failure_does_not_increment_absence(tmp_path: Path) -> None:
     record = next(iter(state["listings"].values()))
     assert record["present"] is True
     assert record["misses"] == 0
+
+
+def test_old_detail_cache_is_pruned() -> None:
+    now = utc_now()
+    state = empty_state()
+    state["detail_cache"] = {
+        "old": {"last_seen_at": (now - timedelta(days=31)).isoformat()},
+        "current": {"last_seen_at": now.isoformat()},
+    }
+    prune_state(state, now)
+    assert set(state["detail_cache"]) == {"current"}

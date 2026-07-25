@@ -37,7 +37,20 @@ class Monitor:
         test_if_empty: bool = False,
     ) -> list[Match]:
         started = time.monotonic()
-        summaries, listings, detail_errors = self.adapter.observe()
+        state.setdefault("detail_cache", {})
+        state.setdefault("catalog_ids", {})
+        if isinstance(self.adapter, AppleRegionalAdapter):
+            previous_ids = {
+                listing_id
+                for values in state["catalog_ids"].values()
+                for listing_id in values
+            }
+            summaries, listings, detail_errors = self.adapter.observe(
+                cache=state["detail_cache"],
+                previous_catalog_ids=previous_ids,
+            )
+        else:
+            summaries, listings, detail_errors = self.adapter.observe()
         summary_ids = {summary.id for summary in summaries}
         listing_by_id = {listing.id: listing for listing in listings}
         now = utc_now()
@@ -47,6 +60,19 @@ class Monitor:
             for key in detail_errors
             if key.startswith("category:")
         }
+        summaries_by_category: dict[str, list[str]] = {}
+        for summary in summaries:
+            summaries_by_category.setdefault(summary.category.value, []).append(summary.id)
+            cache_record = state["detail_cache"].get(summary.id)
+            if cache_record is not None:
+                cache_record["last_seen_at"] = now.isoformat()
+        requested_categories = {
+            getattr(rule, "category", ProductCategory.MAC).value
+            for rule in self.settings.subscriptions
+        }
+        for category in requested_categories:
+            if category not in failed_categories:
+                state["catalog_ids"][category] = summaries_by_category.get(category, [])
 
         for subscription in self.settings.subscriptions:
             subscription_category = getattr(

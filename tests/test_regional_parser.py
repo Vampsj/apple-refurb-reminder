@@ -2,8 +2,18 @@ import json
 
 import pytest
 
-from apple_refurb_reminder.apple import AppleRegionalAdapter, listing_from_summary, parse_catalog
-from apple_refurb_reminder.models import ProductCategory, Region, WatchRule
+from apple_refurb_reminder.apple import (
+    AppleRegionalAdapter,
+    listing_from_summary,
+    parse_catalog,
+    parse_regional_detail,
+)
+from apple_refurb_reminder.models import (
+    ListingSummary,
+    ProductCategory,
+    Region,
+    WatchRule,
+)
 
 
 def catalog_html(title: str, dimensions: dict[str, str]) -> str:
@@ -132,3 +142,94 @@ def test_accessories_are_excluded_from_supported_product_category() -> None:
     assert summaries == []
     assert listings == []
     assert errors == {}
+
+
+def test_detail_is_shared_across_rules_and_then_cached() -> None:
+    catalog = catalog_html(
+        "Refurbished MacBook Pro",
+        {"dimensionCapacity": "1tb"},
+    )
+    detail = """
+    <meta name="description" content="14-inch, Apple M4 Pro chip,
+    12-Core CPU, 16-Core GPU, 24GB unified memory, 1TB SSD">
+    <script type="application/ld+json">
+    {"@type":"Product","name":"Refurbished 14-inch MacBook Pro",
+    "url":"https://www.apple.com/shop/product/test"}
+    </script>
+    """
+    calls: list[str] = []
+
+    def fetcher(url: str) -> str:
+        calls.append(url)
+        return catalog if "refurbished" in url else detail
+
+    rules = (
+        WatchRule("memory", ProductCategory.MAC, "MacBook Pro", memory_gb=24),
+        WatchRule("cpu", ProductCategory.MAC, "MacBook Pro", cpu_cores=12),
+    )
+    cache: dict[str, dict[str, object]] = {}
+    adapter = AppleRegionalAdapter(Region.US, rules, fetcher=fetcher)
+    summaries, listings, errors = adapter.observe(cache=cache)
+    assert len(calls) == 2
+    assert listings[0].memory_gb == 24
+    assert errors == {}
+    calls.clear()
+    adapter.observe(cache=cache, previous_catalog_ids={summaries[0].id})
+    assert calls == ["https://www.apple.com/shop/refurbished/mac"]
+
+
+def test_cached_detail_refreshes_after_reappearance() -> None:
+    catalog = catalog_html("Refurbished MacBook Pro", {})
+    detail_calls = 0
+
+    def fetcher(url: str) -> str:
+        nonlocal detail_calls
+        if "refurbished" in url:
+            return catalog
+        detail_calls += 1
+        return """
+        <meta name="description" content="24GB unified memory">
+        <script type="application/ld+json">
+        {"@type":"Product","name":"Refurbished MacBook Pro"}
+        </script>
+        """
+
+    rule = WatchRule("memory", ProductCategory.MAC, "MacBook Pro", memory_gb=24)
+    cache: dict[str, dict[str, object]] = {}
+    adapter = AppleRegionalAdapter(Region.US, (rule,), fetcher=fetcher)
+    summaries, _listings, _errors = adapter.observe(cache=cache)
+    adapter.observe(cache=cache, previous_catalog_ids={summaries[0].id})
+    adapter.observe(cache=cache, previous_catalog_ids=set())
+    assert detail_calls == 2
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Apple M4 Pro chip, 12-Core CPU, 16-Core GPU, 24GB unified memory, 1TB SSD",
+        "Apple M4 Proチップ、12コアCPU、16コアGPU、24GBユニファイドメモリ、1TB SSD",
+        "Apple M4 Pro 芯片，配备 12 核中央处理器和 16 核图形处理器，24GB 统一内存，1TB SSD",
+        "Apple M4 Pro 晶片配備 12 核心 CPU 及 16 核心 GPU、24GB 統一記憶體、1TB SSD",
+    ],
+)
+def test_parses_localized_mac_detail_fields(description: str) -> None:
+    summary = ListingSummary(
+        "TEST",
+        "MacBook Pro",
+        100,
+        "https://www.apple.com.cn/shop/product/test",
+        ProductCategory.MAC,
+        "CNY",
+    )
+    html = (
+        f'<meta name="description" content="{description}">'
+        '<script type="application/ld+json">'
+        '{"@type":"Product","name":"MacBook Pro","url":"/shop/product/test"}'
+        "</script>"
+    )
+    listing = parse_regional_detail(html, summary)
+    assert listing.cpu_cores == 12
+    assert listing.gpu_cores == 16
+    assert listing.memory_gb == 24
+    assert listing.storage == "1TB"
+    assert listing.url.startswith("https://www.apple.com.cn/")

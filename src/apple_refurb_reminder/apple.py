@@ -12,6 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
+from .matcher import could_match, needs_detail
 from .models import Listing, ListingSummary, ProductCategory, Region, WatchRule
 from .storefronts import Storefront, storefront
 
@@ -26,6 +27,7 @@ DESCRIPTION_RE = re.compile(
     r'<meta\s+name=["\']description["\']\s+content=["\'](.*?)["\']\s*/?>',
     re.DOTALL | re.IGNORECASE,
 )
+PARSER_VERSION = 1
 
 
 class ObservationError(RuntimeError):
@@ -181,6 +183,64 @@ def parse_detail(html: str, summary: ListingSummary) -> Listing:
     )
 
 
+def parse_regional_detail(html: str, summary: ListingSummary) -> Listing:
+    catalog = listing_from_summary(summary)
+    product = _product_json_ld(html)
+    title = str(product.get("name") or summary.title)
+    description_match = DESCRIPTION_RE.search(html)
+    description = unescape(description_match.group(1)) if description_match else ""
+    combined = f"{title} {description}".replace("\xa0", " ")
+    summary_parts = urlsplit(summary.url)
+    summary_base = f"{summary_parts.scheme}://{summary_parts.netloc}"
+    chip_match = re.search(
+        r"Apple\s+(M\d(?:\s+(?:Pro|Max|Ultra))?)\s*(?:chip|チップ|芯片|晶片)?",
+        combined,
+        re.IGNORECASE,
+    )
+
+    def localized_number(*patterns: str) -> int | None:
+        return next(
+            (value for pattern in patterns if (value := _number(pattern, combined)) is not None),
+            None,
+        )
+
+    return replace(
+        catalog,
+        title=title,
+        url=canonical_url(str(product.get("url") or summary.url), summary_base),
+        product=catalog.product or _model_from_title(title, summary.category),
+        display_size_inches=catalog.display_size_inches
+        or localized_number(
+            r"(\d+)(?:-inch|\s*英寸|\s*吋|\s*インチ)",
+        ),
+        chip=catalog.chip
+        or (re.sub(r"\s+", " ", chip_match.group(1)).strip() if chip_match else None),
+        cpu_cores=catalog.cpu_cores
+        or localized_number(
+            r"(\d+)[-\s]*Core\s+CPU",
+            r"(\d+)\s*核中央处理器",
+            r"(\d+)\s*核心\s*CPU",
+            r"(\d+)\s*コアCPU",
+        ),
+        gpu_cores=catalog.gpu_cores
+        or localized_number(
+            r"(\d+)[-\s]*Core\s+GPU",
+            r"(\d+)\s*核图形处理器",
+            r"(\d+)\s*核心\s*GPU",
+            r"(\d+)\s*コアGPU",
+        ),
+        memory_gb=catalog.memory_gb
+        or localized_number(
+            r"(\d+)\s*GB\s*unified memory",
+            r"(\d+)\s*GB\s*统一内存",
+            r"(\d+)\s*GB\s*統一記憶體",
+            r"(\d+)\s*GB\s*ユニファイドメモリ",
+        ),
+        storage=catalog.storage or _storage(combined),
+        color=catalog.color or (str(product.get("color")) if product.get("color") else None),
+    )
+
+
 class AppleRegionalAdapter:
     def __init__(
         self,
@@ -200,7 +260,14 @@ class AppleRegionalAdapter:
     def _fetch(self, url: str) -> str:
         return _fetch_html(url, self.store.locale, self.timeout)
 
-    def observe(self) -> tuple[list[ListingSummary], list[Listing], dict[str, str]]:
+    def observe(
+        self,
+        *,
+        cache: dict[str, dict[str, object]] | None = None,
+        previous_catalog_ids: set[str] | None = None,
+    ) -> tuple[list[ListingSummary], list[Listing], dict[str, str]]:
+        cache = cache if cache is not None else {}
+        previous_catalog_ids = previous_catalog_ids or set()
         categories = {rule.category for rule in self.rules}
         summaries: list[ListingSummary] = []
         errors: dict[str, str] = {}
@@ -223,6 +290,53 @@ class AppleRegionalAdapter:
         ]
         summaries = [summary for summary, listing in pairs if listing.product is not None]
         listings = [listing for _summary, listing in pairs if listing.product is not None]
+        summary_by_id = {summary.id: summary for summary in summaries}
+        listing_by_id = {listing.id: listing for listing in listings}
+        detail_ids = {
+            listing.id
+            for listing in listings
+            if any(needs_detail(rule, listing) for rule in self.rules)
+        }
+        fetch_ids: set[str] = set()
+        for listing_id in detail_ids:
+            record = cache.get(listing_id)
+            reappeared = listing_id not in previous_catalog_ids
+            if (
+                record
+                and record.get("parser_version") == PARSER_VERSION
+                and not reappeared
+                and isinstance(record.get("listing"), dict)
+            ):
+                cached = Listing.from_dict(record["listing"])
+                listing_by_id[listing_id] = with_latest_summary(
+                    cached, summary_by_id[listing_id]
+                )
+            else:
+                fetch_ids.add(listing_id)
+        with ThreadPoolExecutor(max_workers=self.detail_concurrency) as executor:
+            futures = {
+                executor.submit(self._fetcher, summary_by_id[listing_id].url): listing_id
+                for listing_id in fetch_ids
+            }
+            for future in as_completed(futures):
+                listing_id = futures[future]
+                try:
+                    parsed = parse_regional_detail(
+                        future.result(), summary_by_id[listing_id]
+                    )
+                    listing_by_id[listing_id] = parsed
+                    cache[listing_id] = {
+                        "parser_version": PARSER_VERSION,
+                        "listing": parsed.to_dict(),
+                    }
+                except Exception as exc:
+                    errors[listing_id] = str(exc)
+                    del listing_by_id[listing_id]
+        listings = [
+            listing
+            for listing in listing_by_id.values()
+            if any(could_match(rule, listing) for rule in self.rules)
+        ]
         listings.sort(key=lambda value: (value.category.value, value.id))
         return summaries, listings, errors
 

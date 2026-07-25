@@ -50,3 +50,41 @@ def matches(subscription: Subscription | WatchRule, listing: Listing) -> bool:
         if actual is None or actual != expected:
             return False
     return True
+
+
+def could_match(rule: WatchRule, listing: Listing) -> bool:
+    """Return true when known catalog fields do not disqualify the listing."""
+    if listing.category != rule.category:
+        return False
+    comparisons = (
+        (_text(listing.product), _text(rule.model)),
+        (listing.display_size_inches, rule.display_size_inches),
+        (_text(listing.chip), _text(rule.chip)),
+        (listing.cpu_cores, rule.cpu_cores),
+        (listing.gpu_cores, rule.gpu_cores),
+        (listing.memory_gb, rule.memory_gb),
+        (_storage(listing.storage), _storage(rule.storage)),
+        (_text(listing.color), _text(rule.color)),
+        (_text(listing.connectivity), _text(rule.connectivity)),
+    )
+    return all(
+        expected is None or actual is None or actual == expected
+        for actual, expected in comparisons
+    )
+
+
+def needs_detail(rule: WatchRule, listing: Listing) -> bool:
+    if not could_match(rule, listing):
+        return False
+    comparisons = (
+        (listing.product, rule.model),
+        (listing.display_size_inches, rule.display_size_inches),
+        (listing.chip, rule.chip),
+        (listing.cpu_cores, rule.cpu_cores),
+        (listing.gpu_cores, rule.gpu_cores),
+        (listing.memory_gb, rule.memory_gb),
+        (listing.storage, rule.storage),
+        (listing.color, rule.color),
+        (listing.connectivity, rule.connectivity),
+    )
+    return any(expected is not None and actual is None for actual, expected in comparisons)
