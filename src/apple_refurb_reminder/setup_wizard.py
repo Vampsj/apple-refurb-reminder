@@ -111,8 +111,10 @@ def interactive_add_rule(
     input_fn: Input = input,
     output: Output = print,
     fetcher: Callable[[str], str] | None = None,
+    region_override: Region | None = None,
+    save: bool = True,
 ) -> WatchRule:
-    region = _region_for(path, input_fn, output)
+    region = region_override or _region_for(path, input_fn, output)
     category = ProductCategory(
         _choose(
             "Choose a product category",
@@ -183,6 +185,7 @@ def interactive_add_rule(
         model=model,
         **criteria,
     )
-    add_rule(path, region, rule)
-    output(f"Added rule {rule.id}. Current matching stock will notify immediately.")
+    if save:
+        add_rule(path, region, rule)
+        output(f"Added rule {rule.id}. Current matching stock will notify immediately.")
     return rule

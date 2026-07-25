@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -7,11 +8,15 @@ from apple_refurb_reminder.config import ConfigError
 from apple_refurb_reminder.models import Region
 from apple_refurb_reminder.setup_config import (
     add_rule,
+    commit_region_change,
     make_rule,
     migrate_v1,
     read_watch_config,
     remove_rule,
+    replace_rule,
+    write_watch_config,
 )
+from apple_refurb_reminder.state import StateError, StateStore, empty_state
 
 
 def test_migrates_v1_with_backup(tmp_path: Path) -> None:
@@ -76,3 +81,63 @@ def test_refuses_fourth_rule_and_mixed_region(tmp_path: Path) -> None:
             Region.JP,
             make_rule(rule_id="jp", category="mac", model="MacBook Air"),
         )
+
+
+def test_replaces_rule_atomically(tmp_path: Path) -> None:
+    path = tmp_path / "watch.yaml"
+    add_rule(path, Region.US, make_rule(rule_id="old", category="mac", model="Mac mini"))
+    replace_rule(
+        path,
+        "old",
+        make_rule(rule_id="new", category="iphone", model="iPhone 16"),
+    )
+    assert [rule.id for rule in read_watch_config(path)[1]] == ["new"]
+
+
+def test_region_change_archives_rules_and_state(tmp_path: Path) -> None:
+    path = tmp_path / "watch.yaml"
+    staged = tmp_path / "new.yaml"
+    state_path = tmp_path / "data/state.json"
+    write_watch_config(
+        path,
+        Region.JP,
+        (make_rule(rule_id="old", category="mac", model="MacBook Pro"),),
+    )
+    write_watch_config(
+        staged,
+        Region.HK,
+        (make_rule(rule_id="new", category="ipad", model="iPad Pro"),),
+    )
+    with StateStore(state_path) as store:
+        state = empty_state()
+        state["listings"]["old:item"] = {"present": True}
+        store.save(state)
+    archive = commit_region_change(
+        path,
+        state_path,
+        staged,
+        now=datetime(2026, 7, 25, tzinfo=UTC),
+    )
+    assert read_watch_config(path)[0] == Region.HK
+    assert read_watch_config(archive / "watch.yaml")[0] == Region.JP
+    with StateStore(state_path) as store:
+        assert store.load()["listings"] == {}
+
+
+def test_region_change_refuses_while_monitor_holds_state_lock(tmp_path: Path) -> None:
+    path = tmp_path / "watch.yaml"
+    staged = tmp_path / "new.yaml"
+    state_path = tmp_path / "state.json"
+    write_watch_config(
+        path,
+        Region.JP,
+        (make_rule(rule_id="old", category="mac", model="MacBook Pro"),),
+    )
+    write_watch_config(
+        staged,
+        Region.US,
+        (make_rule(rule_id="new", category="iphone", model="iPhone 16"),),
+    )
+    with StateStore(state_path), pytest.raises(StateError):
+        commit_region_change(path, state_path, staged)
+    assert read_watch_config(path)[0] == Region.JP

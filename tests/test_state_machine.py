@@ -86,3 +86,29 @@ def test_old_detail_cache_is_pruned() -> None:
     }
     prune_state(state, now)
     assert set(state["detail_cache"]) == {"current"}
+
+
+def test_category_incident_opens_after_three_failures_and_recovers(
+    tmp_path: Path,
+) -> None:
+    state = empty_state()
+    monitor = Monitor(settings(tmp_path), adapter(CATALOG))
+    events: list[tuple[str, bool]] = []
+    monitor._deliver_health = lambda category, recovered: events.append(
+        (category, recovered)
+    )
+
+    class FailedMacAdapter:
+        def observe(self):
+            return [], [], {"category:mac": "timed out"}
+
+    monitor.adapter = FailedMacAdapter()
+    monitor.check(state, send=True)
+    monitor.check(state, send=True)
+    assert events == []
+    monitor.check(state, send=True)
+    monitor.check(state, send=True)
+    assert events == [("mac", False)]
+    monitor.adapter = adapter(CATALOG)
+    monitor.check(state, send=True)
+    assert events == [("mac", False), ("mac", True)]

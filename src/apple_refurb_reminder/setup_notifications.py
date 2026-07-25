@@ -37,7 +37,7 @@ def _numbered_choice(
         output("Please enter one of the displayed numbers.")
 
 
-def _write_env(path: Path, updates: dict[str, str]) -> None:
+def write_env_settings(path: Path, updates: dict[str, str]) -> None:
     secret_keys = {"DISCORD_WEBHOOK", "SMTP_PASSWORD"}
     existing: list[str] = []
     if path.exists():
@@ -147,6 +147,6 @@ def configure_notifications(
     store = secret_store or default_secret_store()
     for key, value in secrets.items():
         store.set(key, value)
-    _write_env(env_path, updates)
+    write_env_settings(env_path, updates)
     output("Notification tests passed. Configuration saved securely.")
     return mode

@@ -10,7 +10,7 @@ from .apple import AppleJapanAdapter, AppleRegionalAdapter
 from .config import Settings
 from .matcher import matches
 from .models import Listing, Match, ProductCategory
-from .notify import DiscordChannel, EmailChannel, render_batch
+from .notify import DiscordChannel, EmailChannel, render_batch, render_health_event
 from .state import StateStore, prune_state, utc_now
 
 LOGGER = logging.getLogger(__name__)
@@ -73,6 +73,12 @@ class Monitor:
         for category in requested_categories:
             if category not in failed_categories:
                 state["catalog_ids"][category] = summaries_by_category.get(category, [])
+        self._update_category_health(
+            state,
+            requested_categories,
+            failed_categories,
+            send=send,
+        )
 
         for subscription in self.settings.subscriptions:
             subscription_category = getattr(
@@ -142,6 +148,52 @@ class Monitor:
             time.monotonic() - started,
         )
         return new_matches
+
+    def _update_category_health(
+        self,
+        state: dict[str, Any],
+        requested: set[str],
+        failed: set[str],
+        *,
+        send: bool,
+    ) -> None:
+        incidents = state.setdefault("incidents", {})
+        for category in requested:
+            record = incidents.setdefault(
+                category,
+                {"consecutive_failures": 0, "open": False},
+            )
+            if category in failed:
+                record["consecutive_failures"] = (
+                    int(record.get("consecutive_failures", 0)) + 1
+                )
+                if record["consecutive_failures"] >= 3 and not record.get("open"):
+                    record["open"] = True
+                    if send:
+                        self._deliver_health(category, recovered=False)
+            else:
+                was_open = bool(record.get("open"))
+                record["consecutive_failures"] = 0
+                record["open"] = False
+                if was_open and send:
+                    self._deliver_health(category, recovered=True)
+
+    def _deliver_health(self, category: str, *, recovered: bool) -> None:
+        rendered = render_health_event(
+            category,
+            recovered=recovered,
+            region=self.settings.region,
+        )
+        if self.settings.discord_webhook:
+            try:
+                DiscordChannel(self.settings.discord_webhook).send(rendered)
+            except Exception:
+                LOGGER.exception("Discord health notification failed")
+        if self.settings.smtp_host:
+            try:
+                EmailChannel(self.settings).send(rendered)
+            except Exception:
+                LOGGER.exception("Email health notification failed")
 
     def _new_batch(self, values: list[Match], now: datetime) -> dict[str, Any]:
         channels: dict[str, str] = {}

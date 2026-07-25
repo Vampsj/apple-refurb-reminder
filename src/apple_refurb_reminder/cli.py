@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 from .config import ConfigError, Settings, load_settings
@@ -10,10 +11,19 @@ from .logging_setup import configure_logging
 from .models import Region
 from .notify import DiscordChannel, EmailChannel, render_batch
 from .service import Monitor, run_forever
-from .setup_config import add_rule, make_rule, read_watch_config, remove_rule
-from .setup_notifications import configure_notifications
+from .setup_config import (
+    add_rule,
+    commit_region_change,
+    make_rule,
+    read_watch_config,
+    remove_rule,
+    replace_rule,
+    write_watch_config,
+)
+from .setup_notifications import configure_notifications, write_env_settings
 from .setup_wizard import interactive_add_rule
 from .state import StateError, StateStore, empty_state, utc_now
+from .storefronts import storefront
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -43,6 +53,10 @@ def _parser() -> argparse.ArgumentParser:
     add.add_argument("--color")
     remove = setup_sub.add_parser("remove", help="Remove a watch rule")
     remove.add_argument("rule_id")
+    edit = setup_sub.add_parser("edit", help="Replace an existing watch rule")
+    edit.add_argument("rule_id")
+    region = setup_sub.add_parser("region", help="Change region and rebuild rules")
+    region.add_argument("new_region", choices=[value.value for value in Region])
     setup_sub.add_parser(
         "notifications",
         help="Configure and test Discord, Email, or both",
@@ -97,6 +111,54 @@ def main(argv: list[str] | None = None) -> int:
             if args.setup_command == "remove":
                 remove_rule(args.subscriptions, args.rule_id)
                 print(f"Removed rule {args.rule_id}.")
+                return 0
+            if args.setup_command == "edit":
+                region, rules = read_watch_config(args.subscriptions)
+                if not any(rule.id == args.rule_id for rule in rules):
+                    raise ConfigError(f"Unknown rule id: {args.rule_id}")
+                replacement = interactive_add_rule(
+                    args.subscriptions,
+                    region_override=region,
+                    save=False,
+                )
+                replace_rule(args.subscriptions, args.rule_id, replacement)
+                print(f"Replaced rule {args.rule_id} with {replacement.id}.")
+                return 0
+            if args.setup_command == "region":
+                current, _rules = read_watch_config(args.subscriptions)
+                new_region = Region(args.new_region)
+                if current == new_region:
+                    raise ConfigError(f"This installation already uses {current.value}")
+                confirmation = input(
+                    f"Type {new_region.value} to archive {current.value} rules and state: "
+                )
+                if confirmation != new_region.value:
+                    print("Region change cancelled.")
+                    return 1
+                with tempfile.TemporaryDirectory() as directory:
+                    staged = Path(directory) / args.subscriptions.name
+                    rule = interactive_add_rule(
+                        staged,
+                        region_override=new_region,
+                        save=False,
+                    )
+                    write_watch_config(staged, new_region, (rule,))
+                    settings = _load(args)
+                    archive = commit_region_change(
+                        args.subscriptions,
+                        settings.state_file,
+                        staged,
+                    )
+                    store = storefront(new_region)
+                    write_env_settings(
+                        args.env,
+                        {
+                            "APPLE_REGION": new_region.value,
+                            "APPLE_LOCALE": store.locale,
+                            "DISPLAY_TIMEZONE": store.timezone,
+                        },
+                    )
+                print(f"Region changed to {new_region.value}. Archive: {archive}")
                 return 0
             if args.setup_command == "notifications":
                 configure_notifications(args.env, args.subscriptions)

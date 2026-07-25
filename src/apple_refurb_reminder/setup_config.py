@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +10,7 @@ import yaml
 
 from .config import ConfigError, _load_subscriptions
 from .models import ProductCategory, Region, WatchRule
+from .state import StateStore, empty_state
 
 
 def read_watch_config(path: Path) -> tuple[Region, tuple[WatchRule, ...]]:
@@ -83,6 +85,41 @@ def remove_rule(path: Path, rule_id: str) -> None:
     if not remaining:
         raise ConfigError("At least one rule is required; add its replacement first")
     write_watch_config(path, region, remaining)
+
+
+def replace_rule(path: Path, rule_id: str, replacement: WatchRule) -> None:
+    migrate_v1(path)
+    region, rules = read_watch_config(path)
+    if replacement.id != rule_id and any(rule.id == replacement.id for rule in rules):
+        raise ConfigError(f"duplicate rule id: {replacement.id}")
+    updated = tuple(replacement if rule.id == rule_id else rule for rule in rules)
+    if updated == rules:
+        raise ConfigError(f"Unknown rule id: {rule_id}")
+    write_watch_config(path, region, updated)
+
+
+def commit_region_change(
+    path: Path,
+    state_path: Path,
+    staged_path: Path,
+    *,
+    now: datetime | None = None,
+) -> Path:
+    old_region, _old_rules = read_watch_config(path)
+    new_region, _new_rules = read_watch_config(staged_path)
+    if old_region == new_region:
+        raise ConfigError("The new region must differ from the current region")
+    timestamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%SZ")
+    archive = path.parent / "archive" / f"region-{old_region.value}-{timestamp}"
+    with StateStore(state_path) as store:
+        store.load()
+        archive.mkdir(parents=True, exist_ok=False)
+        shutil.copy2(path, archive / path.name)
+        if state_path.exists():
+            shutil.copy2(state_path, archive / state_path.name)
+        staged_path.replace(path)
+        store.save(empty_state())
+    return archive
 
 
 def make_rule(

@@ -86,6 +86,57 @@ def split_discord(text: str, limit: int = 1900) -> tuple[str, ...]:
     return tuple(parts)
 
 
+def render_health_event(
+    category: str,
+    *,
+    recovered: bool,
+    region: str,
+) -> RenderedBatch:
+    language = {
+        "JP": "ja",
+        "US": "en",
+        "CN": "zh-CN",
+        "HK": "zh-HK",
+    }.get(region, "en")
+    messages = {
+        ("en", False): (
+            "Apple Refurb Reminder monitoring issue",
+            f"• {category}: checks failed 3 consecutive times. "
+            "Absence counters are paused for this category.",
+        ),
+        ("en", True): (
+            "Apple Refurb Reminder monitoring recovered",
+            f"• {category}: checks are working again.",
+        ),
+        ("ja", False): (
+            "Apple整備済製品モニター 障害通知",
+            f"• {category}: 3回連続で確認に失敗しました。このカテゴリの不在判定を停止しています。",
+        ),
+        ("ja", True): (
+            "Apple整備済製品モニター 復旧通知",
+            f"• {category}: 確認が正常に戻りました。",
+        ),
+        ("zh-CN", False): (
+            "Apple 翻新产品监控异常",
+            f"• {category}：已连续检查失败 3 次，该类别的缺席计数已暂停。",
+        ),
+        ("zh-CN", True): (
+            "Apple 翻新产品监控已恢复",
+            f"• {category}：检查已恢复正常。",
+        ),
+        ("zh-HK", False): (
+            "Apple 翻新產品監控異常",
+            f"• {category}：已連續檢查失敗 3 次，該類別的缺席計數已暫停。",
+        ),
+        ("zh-HK", True): (
+            "Apple 翻新產品監控已恢復",
+            f"• {category}：檢查已恢復正常。",
+        ),
+    }
+    subject, body = messages[(language, recovered)]
+    return RenderedBatch(subject, body, (f"{subject}\n{body}",))
+
+
 class DiscordChannel:
     def __init__(self, webhook: str) -> None:
         self.webhook = webhook
