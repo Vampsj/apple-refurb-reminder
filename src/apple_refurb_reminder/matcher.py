@@ -29,6 +29,8 @@ def missing_required(listing: Listing) -> tuple[str, ...]:
 def matches(subscription: Subscription | WatchRule, listing: Listing) -> bool:
     if isinstance(subscription, Subscription):
         subscription = subscription.to_watch_rule()
+    if listing.category != subscription.category:
+        return False
     comparisons = {
         "model": (_text(listing.product), _text(subscription.model)),
         "display_size_inches": (

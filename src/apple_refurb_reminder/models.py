@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any
 
@@ -66,6 +66,9 @@ class ListingSummary:
     title: str
     price_jpy: int
     url: str
+    category: ProductCategory = ProductCategory.MAC
+    currency: str = "JPY"
+    dimensions: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +86,9 @@ class Listing:
     storage: str | None
     color: str | None = None
     keyboard: str | None = None
+    connectivity: str | None = None
+    category: ProductCategory = ProductCategory.MAC
+    currency: str = "JPY"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

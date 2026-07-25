@@ -59,3 +59,18 @@ def test_requires_two_absences_before_reappearance(tmp_path: Path) -> None:
     Monitor(target_settings, adapter(EMPTY_CATALOG)).check(state, send=False)
     Monitor(target_settings, adapter(EMPTY_CATALOG)).check(state, send=False)
     assert len(Monitor(target_settings, adapter(CATALOG)).check(state, send=False)) == 1
+
+
+def test_category_failure_does_not_increment_absence(tmp_path: Path) -> None:
+    state = empty_state()
+    target_settings = settings(tmp_path)
+    Monitor(target_settings, adapter(CATALOG)).check(state, send=False)
+
+    class FailedMacAdapter:
+        def observe(self):
+            return [], [], {"category:mac": "timed out"}
+
+    Monitor(target_settings, FailedMacAdapter()).check(state, send=False)
+    record = next(iter(state["listings"].values()))
+    assert record["present"] is True
+    assert record["misses"] == 0

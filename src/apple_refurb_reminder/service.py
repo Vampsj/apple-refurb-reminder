@@ -6,10 +6,10 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Any
 
-from .apple import AppleJapanAdapter
+from .apple import AppleJapanAdapter, AppleRegionalAdapter
 from .config import Settings
-from .matcher import matches, missing_required
-from .models import Listing, Match
+from .matcher import matches
+from .models import Listing, Match, ProductCategory
 from .notify import DiscordChannel, EmailChannel, render_batch
 from .state import StateStore, prune_state, utc_now
 
@@ -17,10 +17,16 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Monitor:
-    def __init__(self, settings: Settings, adapter: AppleJapanAdapter | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        adapter: AppleJapanAdapter | AppleRegionalAdapter | None = None,
+    ) -> None:
         self.settings = settings
-        self.adapter = adapter or AppleJapanAdapter(
-            detail_concurrency=settings.detail_concurrency
+        self.adapter = adapter or AppleRegionalAdapter(
+            settings.region,
+            settings.subscriptions,
+            detail_concurrency=settings.detail_concurrency,
         )
 
     def check(
@@ -36,12 +42,18 @@ class Monitor:
         listing_by_id = {listing.id: listing for listing in listings}
         now = utc_now()
         new_matches: list[Match] = []
+        failed_categories = {
+            key.removeprefix("category:")
+            for key in detail_errors
+            if key.startswith("category:")
+        }
 
         for subscription in self.settings.subscriptions:
+            subscription_category = getattr(
+                subscription, "category", ProductCategory.MAC
+            )
             matching_ids: set[str] = set()
             for listing in listings:
-                if missing_required(listing):
-                    continue
                 if not matches(subscription, listing):
                     continue
                 matching_ids.add(listing.id)
@@ -65,6 +77,8 @@ class Monitor:
                     continue
                 listing_id = record["listing_id"]
                 if listing_id in matching_ids:
+                    continue
+                if subscription_category.value in failed_categories:
                     continue
                 if listing_id in summary_ids and listing_id in listing_by_id:
                     # Present but no longer matches this subscription.
