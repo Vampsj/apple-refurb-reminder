@@ -9,7 +9,7 @@ from typing import Any
 from .apple import AppleJapanAdapter, AppleRegionalAdapter
 from .config import Settings
 from .matcher import matches
-from .models import Listing, Match, ProductCategory
+from .models import Listing, ListingSummary, Match, ProductCategory
 from .notify import DiscordChannel, EmailChannel, render_batch, render_health_event
 from .state import StateStore, prune_state, utc_now
 
@@ -77,6 +77,13 @@ class Monitor:
             state,
             requested_categories,
             failed_categories,
+            send=send,
+        )
+        self._update_detail_health(
+            state,
+            detail_errors,
+            listing_by_id,
+            summaries,
             send=send,
         )
 
@@ -194,6 +201,51 @@ class Monitor:
                 EmailChannel(self.settings).send(rendered)
             except Exception:
                 LOGGER.exception("Email health notification failed")
+
+    def _update_detail_health(
+        self,
+        state: dict[str, Any],
+        errors: dict[str, str],
+        successful: dict[str, Listing],
+        summaries: list[ListingSummary],
+        *,
+        send: bool,
+    ) -> None:
+        incidents = state.setdefault("incidents", {})
+        category_by_id = {summary.id: summary.category.value for summary in summaries}
+        detail_errors = {
+            listing_id
+            for listing_id in errors
+            if not listing_id.startswith("category:")
+        }
+        for listing_id in detail_errors:
+            key = f"detail:{listing_id}"
+            record = incidents.setdefault(
+                key,
+                {
+                    "consecutive_failures": 0,
+                    "open": False,
+                    "category": category_by_id.get(listing_id, "product"),
+                },
+            )
+            record["consecutive_failures"] = (
+                int(record.get("consecutive_failures", 0)) + 1
+            )
+            if record["consecutive_failures"] >= 3 and not record.get("open"):
+                record["open"] = True
+                if send:
+                    label = f"{record.get('category', 'product')} / {listing_id}"
+                    self._deliver_health(label, recovered=False)
+        for key, record in list(incidents.items()):
+            if not key.startswith("detail:") or not record.get("open"):
+                continue
+            listing_id = key.removeprefix("detail:")
+            if listing_id in successful:
+                record["consecutive_failures"] = 0
+                record["open"] = False
+                if send:
+                    label = f"{record.get('category', 'product')} / {listing_id}"
+                    self._deliver_health(label, recovered=True)
 
     def _new_batch(self, values: list[Match], now: datetime) -> dict[str, Any]:
         channels: dict[str, str] = {}

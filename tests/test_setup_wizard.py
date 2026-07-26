@@ -78,7 +78,21 @@ def test_interactive_setup_creates_rule_from_live_options(tmp_path: Path) -> Non
 
 
 def test_interactive_setup_falls_back_to_manual_model(tmp_path: Path) -> None:
-    answers = iter(["1", "1", "Mac Pro", "desktop"])
+    answers = iter(
+        [
+            "1",
+            "1",
+            "Mac Pro",
+            "14",
+            "M4 Ultra",
+            "24",
+            "76",
+            "192",
+            "8TB",
+            "",
+            "desktop",
+        ]
+    )
     path = tmp_path / "watch.yaml"
     rule = interactive_add_rule(
         path,
@@ -87,4 +101,8 @@ def test_interactive_setup_falls_back_to_manual_model(tmp_path: Path) -> None:
         fetcher=lambda _url: (_ for _ in ()).throw(TimeoutError()),
     )
     assert rule.model == "Mac Pro"
-    assert rule.storage is None
+    assert rule.display_size_inches == 14
+    assert rule.chip == "M4 Ultra"
+    assert rule.memory_gb == 192
+    assert rule.storage == "8TB"
+    assert rule.color is None

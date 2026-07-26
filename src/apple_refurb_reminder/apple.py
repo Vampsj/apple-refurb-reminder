@@ -142,7 +142,7 @@ def listing_from_summary(summary: ListingSummary) -> Listing:
     return Listing(
         id=summary.id,
         title=summary.title,
-        price_jpy=summary.price_jpy,
+        price_amount=summary.price_amount,
         url=summary.url,
         product=_model_from_title(summary.title, summary.category),
         display_size_inches=_dimension_number(dimensions.get("dimensionScreensize"))
@@ -173,7 +173,7 @@ def parse_detail(html: str, summary: ListingSummary) -> Listing:
     return Listing(
         id=summary.id,
         title=title,
-        price_jpy=summary.price_jpy,
+        price_amount=summary.price_amount,
         url=canonical_url(str(product.get("url") or summary.url)),
         product="MacBook Pro" if re.search(r"MacBook\s*Pro", title, re.IGNORECASE) else None,
         display_size_inches=_number(r"(\d+)\s*インチ", combined),
@@ -410,4 +410,9 @@ class AppleJapanAdapter:
 
 
 def with_latest_summary(listing: Listing, summary: ListingSummary) -> Listing:
-    return replace(listing, title=summary.title, price_jpy=summary.price_jpy, url=summary.url)
+    return replace(
+        listing,
+        title=summary.title,
+        price_amount=summary.price_amount,
+        url=summary.url,
+    )

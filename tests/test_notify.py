@@ -87,3 +87,23 @@ def test_stock_notification_uses_region_labels_and_currency() -> None:
     assert "Price: $799" in batch.body
     assert "Rules: phone" in batch.body
     assert "None" not in batch.body
+
+
+def test_listing_reads_legacy_price_jpy_state() -> None:
+    value = Listing.from_dict(
+        {
+            "id": "legacy",
+            "title": "Legacy",
+            "price_jpy": 100,
+            "url": "https://example.test",
+            "product": "MacBook Pro",
+            "display_size_inches": None,
+            "chip": None,
+            "cpu_cores": None,
+            "gpu_cores": None,
+            "memory_gb": None,
+            "storage": None,
+        }
+    )
+    assert value.price_amount == 100
+    assert value.currency == "JPY"

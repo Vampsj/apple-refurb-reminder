@@ -21,7 +21,11 @@ from .setup_config import (
     replace_rule,
     write_watch_config,
 )
-from .setup_notifications import configure_notifications, write_env_settings
+from .setup_notifications import (
+    configure_notifications,
+    migrate_legacy_secrets,
+    write_env_settings,
+)
 from .setup_wizard import interactive_add_rule
 from .state import StateError, StateStore, empty_state, utc_now
 from .storefronts import storefront
@@ -167,10 +171,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.setup_command == "migrate":
                 backup = migrate_v1(args.subscriptions)
+                secrets_migrated = migrate_legacy_secrets(args.env)
                 if backup:
                     print(f"Migrated watch configuration. Backup: {backup}")
                 else:
                     print("Watch configuration is already current.")
+                if secrets_migrated:
+                    print("Moved legacy notification secrets to the platform secret store.")
                 return 0
         settings = _load(args)
         configure_logging(settings.log_dir, args.verbose)

@@ -62,6 +62,40 @@ def write_env_settings(path: Path, updates: dict[str, str]) -> None:
     path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
 
 
+def migrate_legacy_secrets(
+    env_path: Path,
+    *,
+    secret_store: SecretStore | None = None,
+) -> bool:
+    if not env_path.exists():
+        return False
+    values: dict[str, str] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip("\"'")
+    discord = values.get("DISCORD_WEBHOOK", "")
+    smtp_password = values.get("SMTP_PASSWORD", "")
+    if not discord and not smtp_password:
+        return False
+    store = secret_store or default_secret_store()
+    if discord:
+        store.set("discord_webhook", discord)
+    if smtp_password:
+        store.set("smtp_password", smtp_password)
+    mode = (
+        "both"
+        if discord and smtp_password
+        else "discord"
+        if discord
+        else "email"
+    )
+    write_env_settings(env_path, {"NOTIFICATION_MODE": mode})
+    return True
+
+
 def configure_notifications(
     env_path: Path,
     subscriptions_path: Path,

@@ -2,7 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from apple_refurb_reminder.setup_notifications import configure_notifications
+from apple_refurb_reminder.setup_notifications import (
+    configure_notifications,
+    migrate_legacy_secrets,
+)
 
 
 def subscription(path: Path) -> None:
@@ -102,3 +105,24 @@ def test_failed_test_preserves_existing_configuration(tmp_path: Path) -> None:
         )
     assert store.values["discord_webhook"] == "old-secret"
     assert env.read_text() == "NOTIFICATION_MODE=discord\nLOG_DIR=./logs\n"
+
+
+def test_migrates_legacy_plaintext_secrets_out_of_env(tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text(
+        "DISCORD_WEBHOOK=https://discord.test/secret\n"
+        "SMTP_HOST=smtp.gmail.com\n"
+        "SMTP_PASSWORD=app-password\n"
+        "EMAIL_TO=person@example.com\n"
+    )
+    store = MemorySecrets()
+    assert migrate_legacy_secrets(env, secret_store=store)
+    assert store.values == {
+        "discord_webhook": "https://discord.test/secret",
+        "smtp_password": "app-password",
+    }
+    content = env.read_text()
+    assert "DISCORD_WEBHOOK" not in content
+    assert "SMTP_PASSWORD" not in content
+    assert "NOTIFICATION_MODE=both" in content
+    assert "SMTP_HOST=smtp.gmail.com" in content

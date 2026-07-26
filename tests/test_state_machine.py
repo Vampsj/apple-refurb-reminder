@@ -112,3 +112,37 @@ def test_category_incident_opens_after_three_failures_and_recovers(
     monitor.adapter = adapter(CATALOG)
     monitor.check(state, send=True)
     assert events == [("mac", False), ("mac", True)]
+
+
+def test_detail_incident_opens_after_three_failures_and_recovers(
+    tmp_path: Path,
+) -> None:
+    state = empty_state()
+    target_settings = settings(tmp_path)
+    summary, listing, _errors = adapter(CATALOG).observe()
+    product_id = summary[0].id
+
+    class DetailAdapter:
+        failing = True
+
+        def observe(self):
+            if self.failing:
+                return summary, [], {product_id: "Product JSON-LD missing"}
+            return summary, listing, {}
+
+    detail_adapter = DetailAdapter()
+    monitor = Monitor(target_settings, detail_adapter)
+    events: list[tuple[str, bool]] = []
+    monitor._deliver_health = lambda category, recovered: events.append(
+        (category, recovered)
+    )
+    monitor.check(state, send=True)
+    monitor.check(state, send=True)
+    monitor.check(state, send=True)
+    assert events == [(f"mac / {product_id}", False)]
+    detail_adapter.failing = False
+    monitor.check(state, send=True)
+    assert events == [
+        (f"mac / {product_id}", False),
+        (f"mac / {product_id}", True),
+    ]

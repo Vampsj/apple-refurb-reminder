@@ -14,6 +14,7 @@ backup_dir="$runtime_dir/backups/$release_id"
 previous=""
 
 restore_previous() {
+  cp "$backup_dir/.env" "$runtime_dir/.env"
   cp "$backup_dir/subscriptions.yaml" "$runtime_dir/subscriptions.yaml"
   if [[ -n "$previous" ]]; then
     ln -s "$previous" "$runtime_dir/current.rollback"
@@ -48,11 +49,14 @@ uv python install "$python_version"
 uv venv --python "$python_version" "$candidate/.venv"
 uv pip install --python "$candidate/.venv/bin/python" "$project_dir"
 cp "$runtime_dir/subscriptions.yaml" "$candidate/subscriptions.yaml"
+cp "$runtime_dir/.env" "$candidate/.env"
 (
   cd "$runtime_dir"
   "$candidate/.venv/bin/apple-refurb-reminder" \
+    --env "$candidate/.env" \
     --subscriptions "$candidate/subscriptions.yaml" setup migrate
   "$candidate/.venv/bin/apple-refurb-reminder" \
+    --env "$candidate/.env" \
     --subscriptions "$candidate/subscriptions.yaml" validate-config
 )
 
@@ -89,9 +93,11 @@ PY
 
 ln -s "$candidate" "$runtime_dir/current.next"
 cp "$candidate/subscriptions.yaml" "$runtime_dir/subscriptions.next.yaml"
+cp "$candidate/.env" "$runtime_dir/.env.next"
 launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
 mv -fh "$runtime_dir/current.next" "$runtime_dir/current"
 mv -f "$runtime_dir/subscriptions.next.yaml" "$runtime_dir/subscriptions.yaml"
+mv -f "$runtime_dir/.env.next" "$runtime_dir/.env"
 
 if ! launchctl bootstrap "$domain" "$agent_path"; then
   echo "The new release failed to start. Restoring the previous release..." >&2

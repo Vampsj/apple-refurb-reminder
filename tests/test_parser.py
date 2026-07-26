@@ -11,7 +11,7 @@ def test_parses_realistic_catalog_bootstrap() -> None:
     values = parse_catalog((FIXTURES / "catalog.html").read_text())
     assert len(values) == 1
     assert values[0].id == "G1MLEJ/A"
-    assert values[0].price_jpy == 455800
+    assert values[0].price_amount == 455800
     assert values[0].url == "https://www.apple.com/jp/shop/product/g1mlej/a/example"
 
 

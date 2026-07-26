@@ -64,7 +64,7 @@ class Subscription:
 class ListingSummary:
     id: str
     title: str
-    price_jpy: int
+    price_amount: int
     url: str
     category: ProductCategory = ProductCategory.MAC
     currency: str = "JPY"
@@ -75,7 +75,7 @@ class ListingSummary:
 class Listing:
     id: str
     title: str
-    price_jpy: int
+    price_amount: int
     url: str
     product: str | None
     display_size_inches: int | None
@@ -96,6 +96,8 @@ class Listing:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> Listing:
         normalized = dict(value)
+        if "price_amount" not in normalized and "price_jpy" in normalized:
+            normalized["price_amount"] = normalized.pop("price_jpy")
         normalized["category"] = ProductCategory(
             normalized.get("category", ProductCategory.MAC)
         )

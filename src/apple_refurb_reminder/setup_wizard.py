@@ -91,6 +91,27 @@ def _manual(prompt: str, input_fn: Input) -> str:
             return value
 
 
+def _manual_criterion(field: str, input_fn: Input, output: Output) -> object | None:
+    numeric = {
+        "display_size_inches",
+        "cpu_cores",
+        "gpu_cores",
+        "memory_gb",
+    }
+    while True:
+        value = input_fn(
+            f"{field.replace('_', ' ').title()} "
+            "(leave blank for Any): "
+        ).strip()
+        if not value:
+            return None
+        if field not in numeric:
+            return value
+        if value.isdigit() and int(value) > 0:
+            return int(value)
+        output("Please enter a positive whole number, or leave blank for Any.")
+
+
 def _region_for(path: Path, input_fn: Input, output: Output) -> Region:
     if path.exists():
         region, _rules = read_watch_config(path)
@@ -169,14 +190,20 @@ def interactive_add_rule(
     for field in fields:
         values = options.values(model, field) if options else ()
         if not values:
-            criteria[field] = None
+            criteria[field] = _manual_criterion(field, input_fn, output)
             continue
-        criteria[field] = _choose(
+        selected = _choose(
             f"Choose {field.replace('_', ' ')}",
             values,
             input_fn=input_fn,
             output=output,
             allow_any=True,
+            allow_manual=True,
+        )
+        criteria[field] = (
+            _manual_criterion(field, input_fn, output)
+            if selected == "__manual__"
+            else selected
         )
     rule_id = _manual("Rule ID (for example: work-mac)", input_fn)
     rule = make_rule(

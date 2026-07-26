@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 from .config import Settings
 from .models import Listing, Match
+from .storefronts import storefront
 
 
 class DeliveryError(RuntimeError):
@@ -32,9 +33,7 @@ def render_batch(
     region: str = "JP",
 ) -> RenderedBatch:
     local = detected_at.astimezone(ZoneInfo(timezone))
-    language = {"JP": "ja", "US": "en", "CN": "zh-CN", "HK": "zh-HK"}.get(
-        region, "en"
-    )
+    language = storefront(region).notification_language
     labels = {
         "en": {
             "subject": "Apple Refurbished Stock Alert",
@@ -120,7 +119,7 @@ def render_batch(
 
 def _format_price(listing: Listing) -> str:
     prefixes = {"JPY": "¥", "USD": "$", "CNY": "RMB ", "HKD": "HK$"}
-    return f"{prefixes.get(listing.currency, f'{listing.currency} ')}{listing.price_jpy:,}"
+    return f"{prefixes.get(listing.currency, f'{listing.currency} ')}{listing.price_amount:,}"
 
 
 def split_discord(text: str, limit: int = 1900) -> tuple[str, ...]:

@@ -10,6 +10,7 @@ import yaml
 
 from .models import ProductCategory, Region, Subscription, WatchRule
 from .secrets import SecretStore, default_secret_store
+from .storefronts import storefront
 
 ENV_KEYS = {
     "APPLE_REGION",
@@ -52,12 +53,6 @@ RULE_KEYS = {
     "storage",
     "color",
     "connectivity",
-}
-REGION_DEFAULTS = {
-    Region.JP: ("ja-JP", "Asia/Tokyo"),
-    Region.US: ("en-US", "America/Los_Angeles"),
-    Region.CN: ("zh-CN", "Asia/Shanghai"),
-    Region.HK: ("zh-HK", "Asia/Hong_Kong"),
 }
 
 
@@ -267,7 +262,9 @@ def load_settings(
             raise ConfigError("APPLE_REGION conflicts with the region in the watch configuration")
     else:
         selected_region = configured_region
-    default_locale, default_timezone = REGION_DEFAULTS[selected_region]
+    selected_storefront = storefront(selected_region)
+    default_locale = selected_storefront.locale
+    default_timezone = selected_storefront.timezone
     notification_mode = values.get("NOTIFICATION_MODE")
     if notification_mode and notification_mode not in {"discord", "email", "both"}:
         raise ConfigError("NOTIFICATION_MODE must be discord, email, or both")

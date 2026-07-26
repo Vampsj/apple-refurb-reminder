@@ -23,6 +23,8 @@ def test_updater_does_not_overwrite_user_rules() -> None:
     assert "current.rollback" in text
     assert '--subscriptions "$candidate/subscriptions.yaml" setup migrate' in text
     assert 'cp "$backup_dir/subscriptions.yaml" "$runtime_dir/subscriptions.yaml"' in text
+    assert 'cp "$backup_dir/.env" "$runtime_dir/.env"' in text
+    assert 'cp "$candidate/.env" "$runtime_dir/.env.next"' in text
     assert 'grep -q "state = running"' in text
 
 

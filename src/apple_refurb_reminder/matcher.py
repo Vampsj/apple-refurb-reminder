@@ -43,6 +43,10 @@ def matches(subscription: Subscription | WatchRule, listing: Listing) -> bool:
         "memory_gb": (listing.memory_gb, subscription.memory_gb),
         "storage": (_storage(listing.storage), _storage(subscription.storage)),
         "color": (_text(listing.color), _text(subscription.color)),
+        "connectivity": (
+            _text(listing.connectivity),
+            _text(subscription.connectivity),
+        ),
     }
     for actual, expected in comparisons.values():
         if expected is None:
