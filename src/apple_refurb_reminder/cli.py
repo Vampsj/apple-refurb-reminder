@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
         settings = _load(args)
         configure_logging(settings.log_dir, args.verbose)
         if args.command == "validate-config":
-            print(f"設定は有効です (fingerprint={settings.fingerprint})")
+            print(f"Configuration is valid (fingerprint={settings.fingerprint})")
             return 0
         if args.command == "test-notifications":
             rendered = render_batch(
@@ -182,20 +182,20 @@ def main(argv: list[str] | None = None) -> int:
                 EmailChannel(settings).send(rendered)
             if not settings.discord_webhook and not settings.smtp_host:
                 raise ConfigError("通知チャネルが設定されていません")
-            print("TEST 通知を送信しました")
+            print("TEST notification sent.")
             return 0
         if args.command == "run":
             run_forever(settings)
             return 0
         if args.command == "reset-state":
             if not args.yes:
-                answer = input("状態をリセットしますか？ [y/N] ")
+                answer = input("Reset all monitor state? [y/N] ")
                 if answer.lower() != "y":
-                    print("キャンセルしました")
+                    print("Cancelled.")
                     return 1
             with StateStore(settings.state_file) as store:
                 store.save(empty_state())
-            print("状態をリセットしました")
+            print("Monitor state reset.")
             return 0
         if args.command == "status":
             with StateStore(settings.state_file) as store:
@@ -236,10 +236,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
     except (ConfigError, StateError) as exc:
-        print(f"エラー: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"実行に失敗しました: {exc}", file=sys.stderr)
+        print(f"Execution failed: {exc}", file=sys.stderr)
         return 1
     return 0
 

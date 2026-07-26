@@ -10,6 +10,8 @@ V1 must not leave Draft status until every item below passes.
 - Ruff reports no violations.
 - Every macOS shell script passes `bash -n`.
 - `uv build` produces both a wheel and source distribution.
+- The isolated macOS installation smoke test installs the built project into a
+  fresh runtime and runs configuration validation.
 
 ## Functional gates
 

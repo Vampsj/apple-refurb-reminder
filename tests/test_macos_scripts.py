@@ -29,3 +29,12 @@ def test_user_facing_macos_scripts_are_english() -> None:
             "\u3040" <= character <= "\u30ff" or "\u4e00" <= character <= "\u9fff"
             for character in text
         ), path.name
+
+
+def test_installation_smoke_test_is_isolated() -> None:
+    text = (SCRIPTS / "smoke-test-install.sh").read_text()
+    assert "mktemp -d" in text
+    assert "Library/Application Support" not in text
+    assert "launchctl" not in text
+    assert "validate-config" in text
+    assert "setup list" in text

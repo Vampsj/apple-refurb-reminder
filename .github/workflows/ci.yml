@@ -55,3 +55,7 @@ jobs:
 
       - name: Build wheel and source distribution
         run: uv build
+
+      - name: Run isolated macOS installation smoke test
+        if: matrix.os == 'macos-14'
+        run: scripts/smoke-test-install.sh
