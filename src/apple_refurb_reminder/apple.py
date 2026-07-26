@@ -57,7 +57,10 @@ def parse_catalog(
         raise ObservationError("カタログデータの構造が不正です") from exc
     if not isinstance(tiles, list):
         raise ObservationError("カタログ商品一覧が配列ではありません")
+    if len(tiles) > 1000:
+        raise ObservationError("Catalog item count is unexpectedly high")
     listings: list[ListingSummary] = []
+    seen_ids: set[str] = set()
     for tile in tiles:
         try:
             part_number = str(tile["partNumber"]).upper()
@@ -69,6 +72,9 @@ def parse_catalog(
                 dimensions = {}
         except (KeyError, TypeError, ValueError) as exc:
             raise ObservationError("カタログ商品に必須項目がありません") from exc
+        if part_number in seen_ids:
+            raise ObservationError(f"Duplicate Apple product ID: {part_number}")
+        seen_ids.add(part_number)
         listings.append(
             ListingSummary(
                 part_number,
