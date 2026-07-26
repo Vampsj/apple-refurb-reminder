@@ -13,6 +13,7 @@ def test_installer_uses_setup_and_never_writes_plaintext_secrets() -> None:
     assert "brew install" not in text
     assert "astral.sh/uv/install.sh" in text
     assert ",," not in text  # macOS ships Bash 3.2, which lacks ${value,,}
+    assert 'grep -q "state = running"' in text
 
 
 def test_updater_does_not_overwrite_user_rules() -> None:
@@ -20,6 +21,9 @@ def test_updater_does_not_overwrite_user_rules() -> None:
     assert 'cp "$project_dir/subscriptions.yaml"' not in text
     assert "validate-config" in text
     assert "current.rollback" in text
+    assert '--subscriptions "$candidate/subscriptions.yaml" setup migrate' in text
+    assert 'cp "$backup_dir/subscriptions.yaml" "$runtime_dir/subscriptions.yaml"' in text
+    assert 'grep -q "state = running"' in text
 
 
 def test_user_facing_macos_scripts_are_english() -> None:

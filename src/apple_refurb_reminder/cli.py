@@ -15,6 +15,7 @@ from .setup_config import (
     add_rule,
     commit_region_change,
     make_rule,
+    migrate_v1,
     read_watch_config,
     remove_rule,
     replace_rule,
@@ -61,6 +62,7 @@ def _parser() -> argparse.ArgumentParser:
         "notifications",
         help="Configure and test Discord, Email, or both",
     )
+    setup_sub.add_parser("migrate", help="Migrate a schema-v1 watch file to schema v2")
     return parser
 
 
@@ -162,6 +164,13 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.setup_command == "notifications":
                 configure_notifications(args.env, args.subscriptions)
+                return 0
+            if args.setup_command == "migrate":
+                backup = migrate_v1(args.subscriptions)
+                if backup:
+                    print(f"Migrated watch configuration. Backup: {backup}")
+                else:
+                    print("Watch configuration is already current.")
                 return 0
         settings = _load(args)
         configure_logging(settings.log_dir, args.verbose)

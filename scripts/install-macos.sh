@@ -112,6 +112,13 @@ if ! launchctl bootstrap "$domain" "$agent_path"; then
   exit 1
 fi
 launchctl kickstart -k "$domain/$label"
+sleep 2
+if ! launchctl print "$domain/$label" | grep -q "state = running"; then
+  launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+  echo "The service exited during its startup check." >&2
+  echo "Review: $runtime_dir/logs/launchd.err.log" >&2
+  exit 1
+fi
 
 echo
 echo "Installation complete."

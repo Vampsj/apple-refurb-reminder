@@ -43,6 +43,26 @@ subscriptions:
     assert root["rules"][0]["model"] == "MacBook Pro"
 
 
+def test_migrated_v1_is_idempotent(tmp_path: Path) -> None:
+    path = tmp_path / "subscriptions.yaml"
+    path.write_text(
+        """
+schema_version: 1
+subscriptions:
+  - id: target
+    product: MacBook Pro
+    display_size_inches: 14
+    chip: M5 Pro
+    cpu_cores: 15
+    gpu_cores: 16
+    memory_gb: 48
+    storage: 1TB
+""".strip()
+    )
+    assert migrate_v1(path) is not None
+    assert migrate_v1(path) is None
+
+
 def test_add_and_remove_rules(tmp_path: Path) -> None:
     path = tmp_path / "watch.yaml"
     first = make_rule(rule_id="mac", category="mac", model="MacBook Pro")

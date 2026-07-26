@@ -13,6 +13,16 @@ candidate="$releases_dir/$release_id"
 backup_dir="$runtime_dir/backups/$release_id"
 previous=""
 
+restore_previous() {
+  cp "$backup_dir/subscriptions.yaml" "$runtime_dir/subscriptions.yaml"
+  if [[ -n "$previous" ]]; then
+    ln -s "$previous" "$runtime_dir/current.rollback"
+    mv -fh "$runtime_dir/current.rollback" "$runtime_dir/current"
+    launchctl bootstrap "$domain" "$agent_path"
+    launchctl kickstart -k "$domain/$label"
+  fi
+}
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This updater supports macOS only." >&2
   exit 1
@@ -37,9 +47,13 @@ echo "Building and validating candidate release $release_id..."
 uv python install "$python_version"
 uv venv --python "$python_version" "$candidate/.venv"
 uv pip install --python "$candidate/.venv/bin/python" "$project_dir"
+cp "$runtime_dir/subscriptions.yaml" "$candidate/subscriptions.yaml"
 (
   cd "$runtime_dir"
-  "$candidate/.venv/bin/apple-refurb-reminder" validate-config
+  "$candidate/.venv/bin/apple-refurb-reminder" \
+    --subscriptions "$candidate/subscriptions.yaml" setup migrate
+  "$candidate/.venv/bin/apple-refurb-reminder" \
+    --subscriptions "$candidate/subscriptions.yaml" validate-config
 )
 
 if [[ -L "$runtime_dir/current" ]]; then
@@ -74,20 +88,24 @@ with agent.open("wb") as handle:
 PY
 
 ln -s "$candidate" "$runtime_dir/current.next"
+cp "$candidate/subscriptions.yaml" "$runtime_dir/subscriptions.next.yaml"
 launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
 mv -fh "$runtime_dir/current.next" "$runtime_dir/current"
+mv -f "$runtime_dir/subscriptions.next.yaml" "$runtime_dir/subscriptions.yaml"
 
 if ! launchctl bootstrap "$domain" "$agent_path"; then
   echo "The new release failed to start. Restoring the previous release..." >&2
-  if [[ -n "$previous" ]]; then
-    ln -s "$previous" "$runtime_dir/current.rollback"
-    mv -fh "$runtime_dir/current.rollback" "$runtime_dir/current"
-    launchctl bootstrap "$domain" "$agent_path"
-    launchctl kickstart -k "$domain/$label"
-  fi
+  restore_previous
   exit 1
 fi
 launchctl kickstart -k "$domain/$label"
+sleep 2
+if ! launchctl print "$domain/$label" | grep -q "state = running"; then
+  echo "The new release exited during its startup check. Restoring the previous release..." >&2
+  launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+  restore_previous
+  exit 1
+fi
 
 echo "Update complete."
 echo "Active release: $candidate"
