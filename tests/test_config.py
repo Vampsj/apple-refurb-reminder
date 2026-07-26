@@ -137,4 +137,4 @@ def test_notification_mode_disables_unselected_stale_channel(tmp_path: Path) -> 
 
     value = load_settings(env, subscriptions, secret_store=Store())
     assert value.discord_webhook is not None
-    assert value.smtp_host is None
+    assert value.email is None

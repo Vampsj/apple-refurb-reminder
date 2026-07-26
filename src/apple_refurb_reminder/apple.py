@@ -17,7 +17,6 @@ from .models import Listing, ListingSummary, ProductCategory, Region, WatchRule
 from .storefronts import Storefront, storefront
 
 BASE_URL = "https://www.apple.com"
-CATALOG_URL = f"{BASE_URL}/jp/shop/refurbished/mac/macbook-pro"
 BOOTSTRAP_RE = re.compile(r"window\.REFURB_GRID_BOOTSTRAP\s*=\s*(\{.*?\});", re.DOTALL)
 PRODUCT_LD_RE = re.compile(
     r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
@@ -373,40 +372,6 @@ def _fetch_html(url: str, locale: str, timeout: float) -> str:
         if attempt < 2:
             time.sleep((2**attempt) + random.random())
     raise ObservationError(f"Apple request failed: {last_error}")
-
-
-class AppleJapanAdapter:
-    def __init__(
-        self,
-        *,
-        timeout: float = 20,
-        detail_concurrency: int = 3,
-        fetcher: Callable[[str], str] | None = None,
-    ) -> None:
-        self.timeout = timeout
-        self.detail_concurrency = detail_concurrency
-        self._fetcher = fetcher or self._fetch
-
-    def _fetch(self, url: str) -> str:
-        return _fetch_html(url, "ja-JP", self.timeout)
-
-    def observe(self) -> tuple[list[ListingSummary], list[Listing], dict[str, str]]:
-        summaries = parse_catalog(self._fetcher(CATALOG_URL))
-        candidates = [item for item in summaries if "MacBook Pro" in item.title]
-        listings: list[Listing] = []
-        errors: dict[str, str] = {}
-        with ThreadPoolExecutor(max_workers=self.detail_concurrency) as executor:
-            futures = {
-                executor.submit(self._fetcher, summary.url): summary for summary in candidates
-            }
-            for future in as_completed(futures):
-                summary = futures[future]
-                try:
-                    listings.append(parse_detail(future.result(), summary))
-                except Exception as exc:  # one detail must not invalidate the catalog
-                    errors[summary.id] = str(exc)
-        listings.sort(key=lambda value: value.id)
-        return summaries, listings, errors
 
 
 def with_latest_summary(listing: Listing, summary: ListingSummary) -> Listing:

@@ -5,7 +5,8 @@ from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
-from .config import Settings, load_settings
+from .config import EmailConfig, Settings, load_settings
+from .models import NotificationMode
 from .notify import DiscordChannel, EmailChannel, render_batch
 from .secrets import SecretStore, default_secret_store
 from .state import utc_now
@@ -113,22 +114,22 @@ def configure_notifications(
         output,
     )
     mode = {
-        "Discord": "discord",
-        "Email": "email",
-        "Discord & Email": "both",
+        "Discord": NotificationMode.DISCORD,
+        "Email": NotificationMode.EMAIL,
+        "Discord & Email": NotificationMode.BOTH,
     }[mode_label]
     base = load_settings(env_path, subscriptions_path, secret_store=secret_store)
-    updates = {"NOTIFICATION_MODE": mode}
+    updates = {"NOTIFICATION_MODE": mode.value}
     secrets: dict[str, str] = {}
     discord_webhook: str | None = None
-    if mode in {"discord", "both"}:
+    if mode in {NotificationMode.DISCORD, NotificationMode.BOTH}:
         discord_webhook = _required("Discord webhook URL", secret_input)
         secrets["discord_webhook"] = discord_webhook
 
     smtp_host = smtp_username = email_from = email_to = smtp_password = None
     smtp_port = 587
     smtp_use_tls = True
-    if mode in {"email", "both"}:
+    if mode in {NotificationMode.EMAIL, NotificationMode.BOTH}:
         provider = _numbered_choice(
             "Choose email provider",
             ("Gmail", "Custom SMTP"),
@@ -158,20 +159,28 @@ def configure_notifications(
                 "SMTP_USE_TLS": str(smtp_use_tls).lower(),
             }
         )
+    email = (
+        EmailConfig(
+            host=smtp_host or "",
+            port=smtp_port,
+            username=smtp_username or "",
+            password=smtp_password or "",
+            from_address=email_from or "",
+            to_address=email_to or "",
+            use_tls=smtp_use_tls,
+        )
+        if mode in {NotificationMode.EMAIL, NotificationMode.BOTH}
+        else None
+    )
     candidate = replace(
         base,
+        notification_mode=mode,
         discord_webhook=discord_webhook,
-        smtp_host=smtp_host,
-        smtp_port=smtp_port,
-        smtp_username=smtp_username,
-        smtp_password=smtp_password,
-        email_from=email_from,
-        email_to=email_to,
-        smtp_use_tls=smtp_use_tls,
+        email=email,
     )
     output("Sending required TEST notification(s)...")
     if sender:
-        sender(candidate, mode)
+        sender(candidate, mode.value)
     else:
         batch = render_batch(
             [],
@@ -180,13 +189,13 @@ def configure_notifications(
             test=True,
             region=candidate.region,
         )
-        if mode in {"discord", "both"}:
+        if mode in {NotificationMode.DISCORD, NotificationMode.BOTH}:
             DiscordChannel(discord_webhook or "").send(batch)
-        if mode in {"email", "both"}:
+        if mode in {NotificationMode.EMAIL, NotificationMode.BOTH}:
             EmailChannel(candidate).send(batch)
     store = secret_store or default_secret_store()
     for key, value in secrets.items():
         store.set(key, value)
     write_env_settings(env_path, updates)
     output("Notification tests passed. Configuration saved securely.")
-    return mode
+    return mode.value

@@ -72,7 +72,7 @@ def test_both_gmail_channels_are_saved_after_test(tmp_path: Path) -> None:
         secret_store=store,
         sender=lambda settings, mode: (
             None
-            if mode == "both" and settings.smtp_host == "smtp.gmail.com"
+            if mode == "both" and settings.email and settings.email.host == "smtp.gmail.com"
             else pytest.fail("unexpected candidate settings")
         ),
     )

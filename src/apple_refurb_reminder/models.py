@@ -18,6 +18,12 @@ class ProductCategory(StrEnum):
     IPAD = "ipad"
 
 
+class NotificationMode(StrEnum):
+    DISCORD = "discord"
+    EMAIL = "email"
+    BOTH = "both"
+
+
 @dataclass(frozen=True, slots=True)
 class WatchRule:
     id: str

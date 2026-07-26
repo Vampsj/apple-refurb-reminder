@@ -1,9 +1,9 @@
 from datetime import timedelta
 from pathlib import Path
 
-from apple_refurb_reminder.apple import AppleJapanAdapter
+from apple_refurb_reminder.apple import AppleRegionalAdapter
 from apple_refurb_reminder.config import Settings
-from apple_refurb_reminder.models import Subscription
+from apple_refurb_reminder.models import ProductCategory, Subscription, WatchRule
 from apple_refurb_reminder.service import Monitor
 from apple_refurb_reminder.state import empty_state, prune_state, utc_now
 
@@ -17,31 +17,44 @@ EMPTY_CATALOG = CATALOG.replace(
 
 def settings(tmp_path: Path) -> Settings:
     return Settings(
-        "JP",
-        "ja-JP",
-        "Asia/Tokyo",
-        600,
-        tmp_path / "state.json",
-        tmp_path / "logs",
-        1,
-        None,
-        None,
-        587,
-        None,
-        None,
-        None,
-        None,
-        True,
-        (Subscription("target", "MacBook Pro", 14, "M5 Pro", 15, 16, 48, "1TB"),),
-        "test",
+        region="JP",
+        locale="ja-JP",
+        display_timezone="Asia/Tokyo",
+        check_interval_seconds=600,
+        state_file=tmp_path / "state.json",
+        log_dir=tmp_path / "logs",
+        detail_concurrency=1,
+        notification_mode=None,
+        discord_webhook=None,
+        email=None,
+        subscriptions=(
+            Subscription("target", "MacBook Pro", 14, "M5 Pro", 15, 16, 48, "1TB"),
+        ),
+        fingerprint="test",
     )
 
 
-def adapter(catalog: str) -> AppleJapanAdapter:
+def adapter(catalog: str) -> AppleRegionalAdapter:
     def fetch(url: str) -> str:
         return catalog if "refurbished" in url else DETAIL
 
-    return AppleJapanAdapter(fetcher=fetch)
+    return AppleRegionalAdapter(
+        "JP",
+        (
+            WatchRule(
+                "target",
+                ProductCategory.MAC,
+                "MacBook Pro",
+                display_size_inches=14,
+                chip="M5 Pro",
+                cpu_cores=15,
+                gpu_cores=16,
+                memory_gb=48,
+                storage="1TB",
+            ),
+        ),
+        fetcher=fetch,
+    )
 
 
 def test_first_seen_then_continuous_does_not_repeat(tmp_path: Path) -> None:

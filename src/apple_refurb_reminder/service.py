@@ -4,9 +4,9 @@ import logging
 import time
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
-from .apple import AppleJapanAdapter, AppleRegionalAdapter
+from .apple import AppleRegionalAdapter
 from .config import Settings
 from .matcher import matches
 from .models import Listing, ListingSummary, Match, ProductCategory
@@ -16,11 +16,15 @@ from .state import StateStore, prune_state, utc_now
 LOGGER = logging.getLogger(__name__)
 
 
+class ObservationAdapter(Protocol):
+    def observe(self) -> tuple[list[ListingSummary], list[Listing], dict[str, str]]: ...
+
+
 class Monitor:
     def __init__(
         self,
         settings: Settings,
-        adapter: AppleJapanAdapter | AppleRegionalAdapter | None = None,
+        adapter: ObservationAdapter | AppleRegionalAdapter | None = None,
     ) -> None:
         self.settings = settings
         self.adapter = adapter or AppleRegionalAdapter(
@@ -196,7 +200,7 @@ class Monitor:
                 DiscordChannel(self.settings.discord_webhook).send(rendered)
             except Exception:
                 LOGGER.exception("Discord health notification failed")
-        if self.settings.smtp_host:
+        if self.settings.email:
             try:
                 EmailChannel(self.settings).send(rendered)
             except Exception:
@@ -251,7 +255,7 @@ class Monitor:
         channels: dict[str, str] = {}
         if self.settings.discord_webhook:
             channels["discord"] = "pending"
-        if self.settings.smtp_host:
+        if self.settings.email:
             channels["email"] = "pending"
         return {
             "id": f"batch-{int(now.timestamp())}",
@@ -293,7 +297,7 @@ class Monitor:
         )
         if self.settings.discord_webhook:
             DiscordChannel(self.settings.discord_webhook).send(rendered)
-        if self.settings.smtp_host:
+        if self.settings.email:
             EmailChannel(self.settings).send(rendered)
 
     def retry_pending(self, state: dict[str, Any]) -> None:

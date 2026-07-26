@@ -220,15 +220,18 @@ class EmailChannel:
     def send(self, batch: RenderedBatch) -> None:
         message = EmailMessage()
         message["Subject"] = batch.subject
-        message["From"] = self.settings.email_from
-        message["To"] = self.settings.email_to
+        config = self.settings.email
+        if config is None:
+            raise DeliveryError("Email is not configured")
+        message["From"] = config.from_address
+        message["To"] = config.to_address
         message.set_content(batch.body)
         try:
-            with smtplib.SMTP(self.settings.smtp_host, self.settings.smtp_port, timeout=20) as smtp:
-                if self.settings.smtp_use_tls:
+            with smtplib.SMTP(config.host, config.port, timeout=20) as smtp:
+                if config.use_tls:
                     smtp.starttls()
-                if self.settings.smtp_username:
-                    smtp.login(self.settings.smtp_username, self.settings.smtp_password)
+                if config.username:
+                    smtp.login(config.username, config.password)
                 smtp.send_message(message)
         except Exception as exc:
             raise DeliveryError(f"Email 送信失敗: {exc}") from exc
