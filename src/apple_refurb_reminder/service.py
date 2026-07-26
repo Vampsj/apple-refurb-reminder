@@ -216,6 +216,7 @@ class Monitor:
             values,
             datetime.fromisoformat(batch_state["created_at"]),
             self.settings.display_timezone,
+            region=self.settings.region,
         )
         if batch_state["channels"].get("discord") == "pending":
             try:
@@ -231,7 +232,13 @@ class Monitor:
                 LOGGER.exception("Email 通知に失敗しました")
 
     def _deliver_test(self, now: datetime) -> None:
-        rendered = render_batch([], now, self.settings.display_timezone, test=True)
+        rendered = render_batch(
+            [],
+            now,
+            self.settings.display_timezone,
+            test=True,
+            region=self.settings.region,
+        )
         if self.settings.discord_webhook:
             DiscordChannel(self.settings.discord_webhook).send(rendered)
         if self.settings.smtp_host:

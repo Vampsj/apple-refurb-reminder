@@ -139,7 +139,13 @@ def configure_notifications(
     if sender:
         sender(candidate, mode)
     else:
-        batch = render_batch([], utc_now(), candidate.display_timezone, test=True)
+        batch = render_batch(
+            [],
+            utc_now(),
+            candidate.display_timezone,
+            test=True,
+            region=candidate.region,
+        )
         if mode in {"discord", "both"}:
             DiscordChannel(discord_webhook or "").send(batch)
         if mode in {"email", "both"}:

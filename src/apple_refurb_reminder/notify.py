@@ -29,33 +29,82 @@ def render_batch(
     timezone: str,
     *,
     test: bool = False,
+    region: str = "JP",
 ) -> RenderedBatch:
     local = detected_at.astimezone(ZoneInfo(timezone))
-    prefix = "【TEST】" if test else ""
-    subject = f"{prefix}Apple整備済製品 在庫通知"
+    language = {"JP": "ja", "US": "en", "CN": "zh-CN", "HK": "zh-HK"}.get(
+        region, "en"
+    )
+    labels = {
+        "en": {
+            "subject": "Apple Refurbished Stock Alert",
+            "detected": "Detected",
+            "specs": "Configuration",
+            "price": "Price",
+            "rules": "Rules",
+            "link": "Product link",
+            "test": "TEST (no matching inventory today)",
+        },
+        "ja": {
+            "subject": "Apple整備済製品 在庫通知",
+            "detected": "検出日時",
+            "specs": "仕様",
+            "price": "価格",
+            "rules": "ルール",
+            "link": "商品リンク",
+            "test": "TEST（本日は一致する実在庫なし）",
+        },
+        "zh-CN": {
+            "subject": "Apple 翻新产品库存提醒",
+            "detected": "发现时间",
+            "specs": "配置",
+            "price": "价格",
+            "rules": "规则",
+            "link": "商品链接",
+            "test": "TEST（今日无匹配库存）",
+        },
+        "zh-HK": {
+            "subject": "Apple 翻新產品庫存提醒",
+            "detected": "發現時間",
+            "specs": "配置",
+            "price": "價格",
+            "rules": "規則",
+            "link": "產品連結",
+            "test": "TEST（今日無符合條件的庫存）",
+        },
+    }[language]
+    subject = labels["subject"]
     if test and not matches:
-        body = (
-            "TEST\n"
-            "本日の確認時点では、条件に一致する実在庫はありません。\n"
-            "このメッセージは通知経路のテストです。\n"
-            f"確認日時: {local:%Y-%m-%d %H:%M:%S %Z}"
-        )
+        subject = labels["test"]
+        body = labels["test"]
     else:
-        lines = [subject, f"検出日時: {local:%Y-%m-%d %H:%M:%S %Z}", ""]
+        lines = [subject, f"{labels['detected']}: {local:%Y-%m-%d %H:%M:%S %Z}", ""]
         grouped: dict[str, tuple[Listing, list[str]]] = {}
         for match in matches:
             if match.listing.id not in grouped:
                 grouped[match.listing.id] = (match.listing, [])
             grouped[match.listing.id][1].append(match.subscription_id)
         for listing, subscription_ids in grouped.values():
+            specs = [
+                value
+                for value in (
+                    f"{listing.cpu_cores}-core CPU" if listing.cpu_cores else None,
+                    f"{listing.gpu_cores}-core GPU" if listing.gpu_cores else None,
+                    f"{listing.memory_gb}GB" if listing.memory_gb else None,
+                    listing.storage,
+                    listing.connectivity,
+                    listing.color,
+                )
+                if value
+            ]
+            lines.append(f"• {listing.title}")
+            if specs:
+                lines.append(f"  {labels['specs']}: {' · '.join(specs)}")
             lines.extend(
                 (
-                    f"• {listing.title}",
-                    f"  仕様: {listing.cpu_cores}コアCPU / {listing.gpu_cores}コアGPU"
-                    f" · {listing.memory_gb}GB · {listing.storage}",
-                    f"  価格: ¥{listing.price_jpy:,}",
-                    f"  購読: {', '.join(sorted(subscription_ids))}",
-                    f"  商品リンク: {listing.url}",
+                    f"  {labels['price']}: {_format_price(listing)}",
+                    f"  {labels['rules']}: {', '.join(sorted(subscription_ids))}",
+                    f"  {labels['link']}: {listing.url}",
                     "",
                 )
             )
@@ -67,6 +116,11 @@ def render_batch(
             for index, part in enumerate(parts, 1)
         )
     return RenderedBatch(subject, body, parts)
+
+
+def _format_price(listing: Listing) -> str:
+    prefixes = {"JPY": "¥", "USD": "$", "CNY": "RMB ", "HKD": "HK$"}
+    return f"{prefixes.get(listing.currency, f'{listing.currency} ')}{listing.price_jpy:,}"
 
 
 def split_discord(text: str, limit: int = 1900) -> tuple[str, ...]:

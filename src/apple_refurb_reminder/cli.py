@@ -169,7 +169,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"設定は有効です (fingerprint={settings.fingerprint})")
             return 0
         if args.command == "test-notifications":
-            rendered = render_batch([], utc_now(), settings.display_timezone, test=True)
+            rendered = render_batch(
+                [],
+                utc_now(),
+                settings.display_timezone,
+                test=True,
+                region=settings.region,
+            )
             if settings.discord_webhook:
                 DiscordChannel(settings.discord_webhook).send(rendered)
             if settings.smtp_host:
