@@ -12,6 +12,7 @@ def test_installer_uses_setup_and_never_writes_plaintext_secrets() -> None:
     assert "DISCORD_WEBHOOK=$" not in text
     assert "brew install" not in text
     assert "astral.sh/uv/install.sh" in text
+    assert ",," not in text  # macOS ships Bash 3.2, which lacks ${value,,}
 
 
 def test_updater_does_not_overwrite_user_rules() -> None:

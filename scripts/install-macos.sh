@@ -20,7 +20,7 @@ if ! command -v uv >/dev/null 2>&1; then
   echo "Apple Refurb Reminder requires uv."
   echo "Official installer: https://docs.astral.sh/uv/getting-started/installation/"
   read -r -p "Run Astral's official uv installer now? [y/N] " install_uv
-  if [[ "${install_uv,,}" != "y" ]]; then
+  if [[ "$install_uv" != "y" && "$install_uv" != "Y" ]]; then
     echo "Installation cancelled. Install uv and run this script again."
     exit 1
   fi
