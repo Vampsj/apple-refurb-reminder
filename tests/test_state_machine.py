@@ -159,3 +159,36 @@ def test_detail_incident_opens_after_three_failures_and_recovers(
         (f"mac / {product_id}", False),
         (f"mac / {product_id}", True),
     ]
+
+
+def test_bulk_detail_incident_opens_immediately_and_recovers(tmp_path: Path) -> None:
+    state = empty_state()
+    monitor = Monitor(settings(tmp_path), adapter(CATALOG))
+    events: list[tuple[str, bool]] = []
+    monitor._deliver_health = lambda category, recovered: events.append(
+        (category, recovered)
+    )
+    summaries, listings, _errors = adapter(CATALOG).observe()
+    failures = {
+        f"failed-{number}": "Product JSON-LD missing" for number in range(3)
+    }
+
+    class BulkFailureAdapter:
+        failing = True
+
+        def observe(self):
+            if self.failing:
+                return summaries, listings[:2], failures
+            return summaries, listings, {}
+
+    bulk_adapter = BulkFailureAdapter()
+    monitor.adapter = bulk_adapter
+    monitor.check(state, send=True)
+    monitor.check(state, send=True)
+    assert events == [("bulk detail parsing", False)]
+    bulk_adapter.failing = False
+    monitor.check(state, send=True)
+    assert events == [
+        ("bulk detail parsing", False),
+        ("bulk detail parsing", True),
+    ]

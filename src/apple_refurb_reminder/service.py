@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from dataclasses import asdict
@@ -10,7 +11,14 @@ from .apple import AppleRegionalAdapter
 from .config import Settings
 from .matcher import matches
 from .models import Listing, ListingSummary, Match, ProductCategory
-from .notify import DiscordChannel, EmailChannel, render_batch, render_health_event
+from .notify import (
+    DiscordChannel,
+    EmailChannel,
+    PermanentDeliveryError,
+    RenderedBatch,
+    render_batch,
+    render_health_event,
+)
 from .state import StateStore, prune_state, utc_now
 
 LOGGER = logging.getLogger(__name__)
@@ -32,6 +40,7 @@ class Monitor:
             settings.subscriptions,
             detail_concurrency=settings.detail_concurrency,
         )
+        self._active_state: dict[str, Any] = {}
 
     def check(
         self,
@@ -41,6 +50,7 @@ class Monitor:
         test_if_empty: bool = False,
     ) -> list[Match]:
         started = time.monotonic()
+        self._reconcile_notification_config(state, send=send)
         state.setdefault("detail_cache", {})
         state.setdefault("catalog_ids", {})
         if isinstance(self.adapter, AppleRegionalAdapter):
@@ -88,6 +98,12 @@ class Monitor:
             detail_errors,
             listing_by_id,
             summaries,
+            send=send,
+        )
+        self._update_bulk_detail_health(
+            state,
+            detail_errors,
+            len(listings),
             send=send,
         )
 
@@ -251,12 +267,40 @@ class Monitor:
                     label = f"{record.get('category', 'product')} / {listing_id}"
                     self._deliver_health(label, recovered=True)
 
+    def _update_bulk_detail_health(
+        self,
+        state: dict[str, Any],
+        errors: dict[str, str],
+        successful_count: int,
+        *,
+        send: bool,
+    ) -> None:
+        detail_failure_count = sum(
+            not key.startswith("category:") for key in errors
+        )
+        attempted_count = successful_count + detail_failure_count
+        failed = (
+            detail_failure_count >= 3
+            and attempted_count > 0
+            and detail_failure_count / attempted_count >= 0.5
+        )
+        record = state.setdefault("incidents", {}).setdefault(
+            "detail:bulk",
+            {"open": False},
+        )
+        was_open = bool(record.get("open"))
+        record["open"] = failed
+        if failed and not was_open and send:
+            self._deliver_health("bulk detail parsing", recovered=False)
+        elif not failed and was_open and send:
+            self._deliver_health("bulk detail parsing", recovered=True)
+
     def _new_batch(self, values: list[Match], now: datetime) -> dict[str, Any]:
         channels: dict[str, str] = {}
         if self.settings.discord_webhook:
-            channels["discord"] = "pending"
+            channels["discord"] = self._initial_channel_status("discord")
         if self.settings.email:
-            channels["email"] = "pending"
+            channels["email"] = self._initial_channel_status("email")
         return {
             "id": f"batch-{int(now.timestamp())}",
             "created_at": now.isoformat(),
@@ -267,6 +311,10 @@ class Monitor:
             "channels": channels,
         }
 
+    def _initial_channel_status(self, channel: str) -> str:
+        incident = self._active_state.get("incidents", {}).get(f"channel:{channel}", {})
+        return "suspended" if incident.get("open") else "pending"
+
     def _deliver(self, batch_state: dict[str, Any], values: list[Match]) -> None:
         rendered = render_batch(
             values,
@@ -274,18 +322,91 @@ class Monitor:
             self.settings.display_timezone,
             region=self.settings.region,
         )
-        if batch_state["channels"].get("discord") == "pending":
-            try:
+        for channel in ("discord", "email"):
+            if batch_state["channels"].get(channel) == "pending":
+                self._send_channel(channel, rendered, batch_state["channels"])
+
+    def _send_channel(
+        self,
+        channel: str,
+        rendered: RenderedBatch,
+        statuses: dict[str, str],
+    ) -> None:
+        try:
+            if channel == "discord":
                 DiscordChannel(self.settings.discord_webhook or "").send(rendered)
-                batch_state["channels"]["discord"] = "sent"
-            except Exception:
-                LOGGER.exception("Discord 通知に失敗しました")
-        if batch_state["channels"].get("email") == "pending":
-            try:
+            else:
                 EmailChannel(self.settings).send(rendered)
-                batch_state["channels"]["email"] = "sent"
-            except Exception:
-                LOGGER.exception("Email 通知に失敗しました")
+            statuses[channel] = "sent"
+        except PermanentDeliveryError:
+            LOGGER.exception("%s configuration is invalid; channel paused", channel)
+            statuses[channel] = "suspended"
+            self._open_channel_incident(channel)
+        except Exception:
+            LOGGER.exception("%s notification failed", channel)
+
+    def _open_channel_incident(self, failed_channel: str) -> None:
+        state = self._active_state
+        record = state.setdefault("incidents", {}).setdefault(
+            f"channel:{failed_channel}",
+            {"open": False},
+        )
+        if record.get("open"):
+            return
+        record["open"] = True
+        rendered = render_health_event(
+            f"{failed_channel} notification channel",
+            recovered=False,
+            region=self.settings.region,
+        )
+        alternate = "email" if failed_channel == "discord" else "discord"
+        try:
+            if alternate == "email" and self.settings.email:
+                EmailChannel(self.settings).send(rendered)
+            elif alternate == "discord" and self.settings.discord_webhook:
+                DiscordChannel(self.settings.discord_webhook).send(rendered)
+        except Exception:
+            LOGGER.exception("Alternate channel could not report %s failure", failed_channel)
+
+    def _reconcile_notification_config(
+        self,
+        state: dict[str, Any],
+        *,
+        send: bool,
+    ) -> None:
+        self._active_state = state
+        fingerprint = self._notification_fingerprint()
+        previous = state.get("notification_config_fingerprint")
+        if previous is not None and previous != fingerprint:
+            for key, record in state.setdefault("incidents", {}).items():
+                if not key.startswith("channel:") or not record.get("open"):
+                    continue
+                record["open"] = False
+                if send:
+                    self._deliver_health(
+                        f"{key.removeprefix('channel:')} notification channel",
+                        recovered=True,
+                    )
+            for batch in state.get("batches", []):
+                for channel, status in batch.get("channels", {}).items():
+                    if status == "suspended":
+                        batch["channels"][channel] = "pending"
+        state["notification_config_fingerprint"] = fingerprint
+
+    def _notification_fingerprint(self) -> str:
+        email = self.settings.email
+        values = (
+            self.settings.discord_webhook,
+            email.host if email else None,
+            email.port if email else None,
+            email.username if email else None,
+            email.password if email else None,
+            email.from_address if email else None,
+            email.to_address if email else None,
+            email.use_tls if email else None,
+        )
+        # The digest can detect a configuration change without persisting credentials.
+        return hashlib.sha256(repr(values).encode()).hexdigest()
 
     def _deliver_test(self, now: datetime) -> None:
         rendered = render_batch(
@@ -301,6 +422,7 @@ class Monitor:
             EmailChannel(self.settings).send(rendered)
 
     def retry_pending(self, state: dict[str, Any]) -> None:
+        self._reconcile_notification_config(state, send=True)
         for batch in state["batches"]:
             if not any(value == "pending" for value in batch["channels"].values()):
                 continue

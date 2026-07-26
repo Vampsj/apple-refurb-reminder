@@ -161,33 +161,6 @@ def listing_from_summary(summary: ListingSummary) -> Listing:
     )
 
 
-def parse_detail(html: str, summary: ListingSummary) -> Listing:
-    product = _product_json_ld(html)
-    title = str(product.get("name") or summary.title)
-    description_match = DESCRIPTION_RE.search(html)
-    description = unescape(description_match.group(1)) if description_match else ""
-    combined = f"{title} {description}".replace("\xa0", " ")
-    chip_match = re.search(r"Apple\s+(M\d(?:\s+(?:Pro|Max|Ultra))?)\s*チップ", combined)
-    color = str(product.get("color")) if product.get("color") else None
-    return Listing(
-        id=summary.id,
-        title=title,
-        price_amount=summary.price_amount,
-        url=canonical_url(str(product.get("url") or summary.url)),
-        product="MacBook Pro" if re.search(r"MacBook\s*Pro", title, re.IGNORECASE) else None,
-        display_size_inches=_number(r"(\d+)\s*インチ", combined),
-        chip=re.sub(r"\s+", " ", chip_match.group(1)).strip() if chip_match else None,
-        cpu_cores=_number(r"(\d+)\s*コアCPU", combined),
-        gpu_cores=_number(r"(\d+)\s*コアGPU", combined),
-        memory_gb=_number(r"(\d+)\s*GB\s*ユニファイドメモリ", combined),
-        storage=_storage(combined),
-        color=color,
-        keyboard="Magic Keyboard" if "Magic Keyboard" in combined else None,
-        category=summary.category,
-        currency=summary.currency,
-    )
-
-
 def parse_regional_detail(html: str, summary: ListingSummary) -> Listing:
     catalog = listing_from_summary(summary)
     product = _product_json_ld(html)

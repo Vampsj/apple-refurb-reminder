@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from apple_refurb_reminder.apple import ObservationError, parse_catalog, parse_detail
+from apple_refurb_reminder.apple import (
+    ObservationError,
+    parse_catalog,
+    parse_regional_detail,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -17,7 +21,7 @@ def test_parses_realistic_catalog_bootstrap() -> None:
 
 def test_parses_required_details() -> None:
     summary = parse_catalog((FIXTURES / "catalog.html").read_text())[0]
-    value = parse_detail((FIXTURES / "detail.html").read_text(), summary)
+    value = parse_regional_detail((FIXTURES / "detail.html").read_text(), summary)
     assert value.display_size_inches == 14
     assert value.chip == "M5 Pro"
     assert value.cpu_cores == 15

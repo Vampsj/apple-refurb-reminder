@@ -5,6 +5,7 @@ import smtplib
 from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
@@ -15,6 +16,10 @@ from .storefronts import storefront
 
 class DeliveryError(RuntimeError):
     pass
+
+
+class PermanentDeliveryError(DeliveryError):
+    """A credential or endpoint failure that should pause the channel."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,12 +150,7 @@ def render_health_event(
     recovered: bool,
     region: str,
 ) -> RenderedBatch:
-    language = {
-        "JP": "ja",
-        "US": "en",
-        "CN": "zh-CN",
-        "HK": "zh-HK",
-    }.get(region, "en")
+    language = storefront(region).notification_language
     messages = {
         ("en", False): (
             "Apple Refurb Reminder monitoring issue",
@@ -209,6 +209,13 @@ class DiscordChannel:
                 with urlopen(request, timeout=20) as response:
                     if response.status not in {200, 204}:
                         raise DeliveryError(f"Discord status={response.status}")
+            except HTTPError as exc:
+                error = (
+                    PermanentDeliveryError
+                    if 400 <= exc.code < 500 and exc.code != 429
+                    else DeliveryError
+                )
+                raise error(f"Discord 送信失敗: {exc}") from exc
             except Exception as exc:
                 raise DeliveryError(f"Discord 送信失敗: {exc}") from exc
 
@@ -233,5 +240,7 @@ class EmailChannel:
                 if config.username:
                     smtp.login(config.username, config.password)
                 smtp.send_message(message)
+        except smtplib.SMTPAuthenticationError as exc:
+            raise PermanentDeliveryError(f"Email 送信失敗: {exc}") from exc
         except Exception as exc:
             raise DeliveryError(f"Email 送信失敗: {exc}") from exc
