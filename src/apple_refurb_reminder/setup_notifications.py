@@ -1,0 +1,201 @@
+from __future__ import annotations
+
+import getpass
+from collections.abc import Callable
+from dataclasses import replace
+from pathlib import Path
+
+from .config import EmailConfig, Settings, load_settings
+from .models import NotificationMode
+from .notify import DiscordChannel, EmailChannel, render_batch
+from .secrets import SecretStore, default_secret_store
+from .state import utc_now
+
+Input = Callable[[str], str]
+SecretInput = Callable[[str], str]
+Output = Callable[[str], None]
+
+
+def _required(prompt: str, reader: Input | SecretInput) -> str:
+    while True:
+        value = reader(f"{prompt}: ").strip()
+        if value:
+            return value
+
+
+def _numbered_choice(
+    prompt: str,
+    choices: tuple[str, ...],
+    input_fn: Input,
+    output: Output,
+) -> str:
+    for index, choice in enumerate(choices, 1):
+        output(f"  {index}. {choice}")
+    while True:
+        value = input_fn(f"{prompt} [1-{len(choices)}]: ").strip()
+        if value.isdigit() and 1 <= int(value) <= len(choices):
+            return choices[int(value) - 1]
+        output("Please enter one of the displayed numbers.")
+
+
+def write_env_settings(path: Path, updates: dict[str, str]) -> None:
+    secret_keys = {"DISCORD_WEBHOOK", "SMTP_PASSWORD"}
+    existing: list[str] = []
+    if path.exists():
+        existing = path.read_text(encoding="utf-8").splitlines()
+    output: list[str] = []
+    written: set[str] = set()
+    for line in existing:
+        if "=" not in line or line.lstrip().startswith("#"):
+            output.append(line)
+            continue
+        key = line.split("=", 1)[0].strip()
+        if key in secret_keys:
+            continue
+        if key in updates:
+            output.append(f"{key}={updates[key]}")
+            written.add(key)
+        else:
+            output.append(line)
+    for key, value in updates.items():
+        if key not in written:
+            output.append(f"{key}={value}")
+    path.write_text("\n".join(output).rstrip() + "\n", encoding="utf-8")
+
+
+def migrate_legacy_secrets(
+    env_path: Path,
+    *,
+    secret_store: SecretStore | None = None,
+) -> bool:
+    if not env_path.exists():
+        return False
+    values: dict[str, str] = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key.strip()] = value.strip().strip("\"'")
+    discord = values.get("DISCORD_WEBHOOK", "")
+    smtp_password = values.get("SMTP_PASSWORD", "")
+    if not discord and not smtp_password:
+        return False
+    store = secret_store or default_secret_store()
+    if discord:
+        store.set("discord_webhook", discord)
+    if smtp_password:
+        store.set("smtp_password", smtp_password)
+    mode = (
+        "both"
+        if discord and smtp_password
+        else "discord"
+        if discord
+        else "email"
+    )
+    write_env_settings(env_path, {"NOTIFICATION_MODE": mode})
+    return True
+
+
+def configure_notifications(
+    env_path: Path,
+    subscriptions_path: Path,
+    *,
+    input_fn: Input = input,
+    secret_input: SecretInput = getpass.getpass,
+    output: Output = print,
+    secret_store: SecretStore | None = None,
+    sender: Callable[[Settings, str], None] | None = None,
+) -> str:
+    mode_label = _numbered_choice(
+        "Choose notification delivery",
+        ("Discord", "Email", "Discord & Email"),
+        input_fn,
+        output,
+    )
+    mode = {
+        "Discord": NotificationMode.DISCORD,
+        "Email": NotificationMode.EMAIL,
+        "Discord & Email": NotificationMode.BOTH,
+    }[mode_label]
+    base = load_settings(env_path, subscriptions_path, secret_store=secret_store)
+    updates = {"NOTIFICATION_MODE": mode.value}
+    secrets: dict[str, str] = {}
+    discord_webhook: str | None = None
+    if mode in {NotificationMode.DISCORD, NotificationMode.BOTH}:
+        discord_webhook = _required("Discord webhook URL", secret_input)
+        secrets["discord_webhook"] = discord_webhook
+
+    smtp_host = smtp_username = email_from = email_to = smtp_password = None
+    smtp_port = 587
+    smtp_use_tls = True
+    if mode in {NotificationMode.EMAIL, NotificationMode.BOTH}:
+        provider = _numbered_choice(
+            "Choose email provider",
+            ("Gmail", "Custom SMTP"),
+            input_fn,
+            output,
+        )
+        if provider == "Gmail":
+            smtp_host = "smtp.gmail.com"
+            smtp_username = _required("Gmail address", input_fn)
+            email_from = smtp_username
+            smtp_password = _required("Gmail app password", secret_input)
+        else:
+            smtp_host = _required("SMTP host", input_fn)
+            smtp_port = int(_required("SMTP port", input_fn))
+            smtp_username = _required("SMTP username", input_fn)
+            email_from = _required("From address", input_fn)
+            smtp_password = _required("SMTP password", secret_input)
+        email_to = _required("Recipient address", input_fn)
+        secrets["smtp_password"] = smtp_password
+        updates.update(
+            {
+                "SMTP_HOST": smtp_host,
+                "SMTP_PORT": str(smtp_port),
+                "SMTP_USERNAME": smtp_username,
+                "EMAIL_FROM": email_from,
+                "EMAIL_TO": email_to,
+                "SMTP_USE_TLS": str(smtp_use_tls).lower(),
+            }
+        )
+    email = (
+        EmailConfig(
+            host=smtp_host or "",
+            port=smtp_port,
+            username=smtp_username or "",
+            password=smtp_password or "",
+            from_address=email_from or "",
+            to_address=email_to or "",
+            use_tls=smtp_use_tls,
+        )
+        if mode in {NotificationMode.EMAIL, NotificationMode.BOTH}
+        else None
+    )
+    candidate = replace(
+        base,
+        notification_mode=mode,
+        discord_webhook=discord_webhook,
+        email=email,
+    )
+    output("Sending required TEST notification(s)...")
+    if sender:
+        sender(candidate, mode.value)
+    else:
+        batch = render_batch(
+            [],
+            utc_now(),
+            candidate.display_timezone,
+            test=True,
+            region=candidate.region,
+        )
+        if mode in {NotificationMode.DISCORD, NotificationMode.BOTH}:
+            DiscordChannel(discord_webhook or "").send(batch)
+        if mode in {NotificationMode.EMAIL, NotificationMode.BOTH}:
+            EmailChannel(candidate).send(batch)
+    store = secret_store or default_secret_store()
+    for key, value in secrets.items():
+        store.set(key, value)
+    write_env_settings(env_path, updates)
+    output("Notification tests passed. Configuration saved securely.")
+    return mode.value

@@ -7,7 +7,10 @@ domain="gui/$(id -u)"
 
 launchctl print "$domain/$label"
 echo
+if [[ -L "$runtime_dir/current" ]]; then
+  echo "Active release: $(readlink "$runtime_dir/current")"
+fi
 if [[ -f "$runtime_dir/logs/monitor.log" ]]; then
-  echo "最新の監視ログ:"
+  echo "Latest monitor log:"
   tail -n 10 "$runtime_dir/logs/monitor.log"
 fi

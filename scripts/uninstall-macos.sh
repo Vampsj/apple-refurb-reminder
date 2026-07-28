@@ -8,8 +8,8 @@ runtime_dir="$HOME/Library/Application Support/Apple Refurb Reminder"
 
 launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
 
-echo "LaunchAgent を停止しました。"
-echo "設定と状態は次の場所に保持されています:"
-echo "$runtime_dir"
-echo "完全削除する場合は、内容を確認してからこのディレクトリを手動で削除してください。"
-echo "LaunchAgent 定義: $agent_path"
+echo "The LaunchAgent has been stopped."
+echo "Configuration, secrets, releases, and state have been preserved."
+echo "Runtime directory: $runtime_dir"
+echo "LaunchAgent definition: $agent_path"
+echo "Review these paths before removing anything manually."

@@ -1,0 +1,162 @@
+[
+  {
+    "region": "JP",
+    "category": "mac",
+    "currency": "JPY",
+    "base_url": "https://www.apple.com",
+    "title": "14インチMacBook Pro [整備済製品] 12コアCPUと16コアGPUを搭載したApple M4 Proチップ - シルバー",
+    "expected_model": "MacBook Pro",
+    "dimensions": {
+      "dimensionScreensize": "14inch",
+      "dimensionCapacity": "1tb",
+      "tsMemorySize": "24gb",
+      "dimensionColor": "silver"
+    }
+  },
+  {
+    "region": "JP",
+    "category": "iphone",
+    "currency": "JPY",
+    "base_url": "https://www.apple.com",
+    "title": "iPhone 16 Pro 256GB [整備済製品] - ブラックチタニウム",
+    "expected_model": "iPhone 16 Pro",
+    "dimensions": {
+      "dimensionCapacity": "256gb",
+      "dimensionColor": "blacktitanium"
+    }
+  },
+  {
+    "region": "JP",
+    "category": "ipad",
+    "currency": "JPY",
+    "base_url": "https://www.apple.com",
+    "title": "11インチiPad Air Wi-Fi 256GB [整備済製品] - ブルー",
+    "expected_model": "iPad Air",
+    "dimensions": {
+      "dimensionScreensize": "11inch",
+      "dimensionCapacity": "256gb",
+      "dimensionconnectivity": "wifi",
+      "dimensionColor": "blue"
+    }
+  },
+  {
+    "region": "US",
+    "category": "mac",
+    "currency": "USD",
+    "base_url": "https://www.apple.com",
+    "title": "Refurbished 14-inch MacBook Pro Apple M4 Pro chip with 12-Core CPU and 16-Core GPU - Silver",
+    "expected_model": "MacBook Pro",
+    "dimensions": {
+      "dimensionScreensize": "14inch",
+      "dimensionCapacity": "1tb",
+      "tsMemorySize": "24gb",
+      "dimensionColor": "silver"
+    }
+  },
+  {
+    "region": "US",
+    "category": "iphone",
+    "currency": "USD",
+    "base_url": "https://www.apple.com",
+    "title": "Refurbished iPhone 16 Pro Max 256GB - Natural Titanium (Unlocked)",
+    "expected_model": "iPhone 16 Pro Max",
+    "dimensions": {
+      "dimensionCapacity": "256gb",
+      "dimensionColor": "naturaltitanium"
+    }
+  },
+  {
+    "region": "US",
+    "category": "ipad",
+    "currency": "USD",
+    "base_url": "https://www.apple.com",
+    "title": "Refurbished 13-inch iPad Pro Wi-Fi 256GB with Standard glass - Silver",
+    "expected_model": "iPad Pro",
+    "dimensions": {
+      "dimensionScreensize": "13inch",
+      "dimensionCapacity": "256gb",
+      "dimensionconnectivity": "wifi",
+      "dimensionColor": "silver"
+    }
+  },
+  {
+    "region": "CN",
+    "category": "mac",
+    "currency": "CNY",
+    "base_url": "https://www.apple.com.cn",
+    "title": "翻新 14 英寸 MacBook Pro Apple M4 Pro 芯片 (配备 12 核中央处理器和 16 核图形处理器) - 银色",
+    "expected_model": "MacBook Pro",
+    "dimensions": {
+      "dimensionScreensize": "14inch",
+      "dimensionCapacity": "1tb",
+      "tsMemorySize": "24gb",
+      "dimensionColor": "silver"
+    }
+  },
+  {
+    "region": "CN",
+    "category": "iphone",
+    "currency": "CNY",
+    "base_url": "https://www.apple.com.cn",
+    "title": "翻新 iPhone 16 Pro 256GB - 黑色钛金属",
+    "expected_model": "iPhone 16 Pro",
+    "dimensions": {
+      "dimensionCapacity": "256gb",
+      "dimensionColor": "blacktitanium"
+    }
+  },
+  {
+    "region": "CN",
+    "category": "ipad",
+    "currency": "CNY",
+    "base_url": "https://www.apple.com.cn",
+    "title": "翻新 iPad Air 11 英寸无线局域网机型 256GB - 蓝色",
+    "expected_model": "iPad Air 11 英寸",
+    "dimensions": {
+      "dimensionScreensize": "11inch",
+      "dimensionCapacity": "256gb",
+      "dimensionconnectivity": "wifi",
+      "dimensionColor": "blue"
+    }
+  },
+  {
+    "region": "HK",
+    "category": "mac",
+    "currency": "HKD",
+    "base_url": "https://www.apple.com",
+    "title": "翻新產品 14 吋 MacBook Pro Apple M4 Pro 晶片配備 12 核心 CPU 及 16 核心 GPU - 銀色",
+    "expected_model": "MacBook Pro",
+    "dimensions": {
+      "dimensionScreensize": "14inch",
+      "dimensionCapacity": "1tb",
+      "tsMemorySize": "24gb",
+      "dimensionColor": "silver"
+    }
+  },
+  {
+    "region": "HK",
+    "category": "iphone",
+    "currency": "HKD",
+    "base_url": "https://www.apple.com",
+    "title": "翻新產品 iPhone 16 Pro 256GB - 黑色鈦金屬",
+    "expected_model": "iPhone 16 Pro",
+    "dimensions": {
+      "dimensionCapacity": "256gb",
+      "dimensionColor": "blacktitanium"
+    }
+  },
+  {
+    "region": "HK",
+    "category": "ipad",
+    "currency": "HKD",
+    "base_url": "https://www.apple.com",
+    "title": "翻新產品 11 吋 iPad Air Wi-Fi 256GB - 藍色",
+    "expected_model": "iPad Air",
+    "dimensions": {
+      "dimensionScreensize": "11inch",
+      "dimensionCapacity": "256gb",
+      "dimensionconnectivity": "wifi",
+      "dimensionColor": "blue"
+    }
+  }
+]

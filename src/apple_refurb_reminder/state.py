@@ -24,6 +24,8 @@ def empty_state() -> dict[str, Any]:
         "listings": {},
         "batches": [],
         "incidents": {},
+        "detail_cache": {},
+        "catalog_ids": {},
     }
 
 
@@ -56,6 +58,8 @@ class StateStore(AbstractContextManager["StateStore"]):
             raise StateError(f"状態ファイルを読み込めません: {self.path}") from exc
         if not isinstance(state, dict) or state.get("schema_version") != SCHEMA_VERSION:
             raise StateError("状態ファイルの schema_version が不正です")
+        state.setdefault("detail_cache", {})
+        state.setdefault("catalog_ids", {})
         return state
 
     def save(self, state: dict[str, Any]) -> None:
@@ -93,6 +97,10 @@ def prune_state(state: dict[str, Any], now: datetime) -> None:
             and datetime.fromisoformat(record["confirmed_absent_at"]) < absent_cutoff
         ):
             del state["listings"][key]
+    for listing_id, record in list(state.get("detail_cache", {}).items()):
+        last_seen = record.get("last_seen_at")
+        if last_seen and datetime.fromisoformat(last_seen) < absent_cutoff:
+            del state["detail_cache"][listing_id]
 
 
 def utc_now() -> datetime:

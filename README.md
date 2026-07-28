@@ -1,73 +1,73 @@
 # Apple Refurb Reminder
 
-Apple 日本の整備済 MacBook Pro 在庫を監視し、Discord と Email に通知する CLI です。
+[Simplified Chinese](docs/README.zh-CN.md) · [Japanese](docs/README.ja.md)
+
+Apple Refurb Reminder is an independent command-line monitor for Apple Certified
+Refurbished inventory. It checks matching products at a responsible interval and
+sends immediate Discord, email, or combined notifications.
 
 > [!IMPORTANT]
-> Version 0.1 is a working early release for one Japan MacBook Pro rule.
-> Public V1 is under development and will add an English setup wizard, up to
-> three rules, JP/US/CN/HK regions, and Mac/iPhone/iPad support.
+> The stable `v0.1.0` release monitors one MacBook Pro configuration in Japan.
+> Multi-region V1 is under active development in Draft PR #1 and is not ready for
+> unattended production use yet.
 
-This is an independent open-source project and is not affiliated with or
-endorsed by Apple Inc. Use it responsibly and comply with Apple's website
-terms and applicable local rules. The project collects no telemetry.
+## V1 scope
 
-## Mac mini 一键安装
+- Apple Store regions: Japan, United States, mainland China, and Hong Kong
+  (Traditional Chinese).
+- Product categories: Mac computers, iPhone, and iPad.
+- One region per installation and up to three independent watch rules.
+- One exact model per rule; each applicable configuration field can be either
+  one exact value or `Any`.
+- Discord, email, or both. Gmail has a guided path; custom SMTP is available for
+  advanced users.
+- Notification language follows the selected Apple region.
+- macOS 14 or later on Apple silicon and Intel is the supported platform.
+  Linux CLI use is experimental. Windows is not supported.
 
-Mac mini 建议关闭自动睡眠并保持联网。克隆仓库后，在项目目录运行：
+Apple Watch, AirPods, Apple TV, HomePod, displays, and accessories are outside
+the V1 scope.
 
-```bash
-chmod +x scripts/*.sh
-./scripts/install-macos.sh
-```
+## Development setup
 
-安装程序会：
-
-- 使用 `uv` 准备 Python 3.13 隔离环境；
-- 将运行副本部署到 `~/Library/Application Support/Apple Refurb Reminder`；
-- 交互式读取 Discord Webhook 和可选的 Gmail 应用专用密码；
-- 将秘密配置保存为仅当前用户可读；
-- 安装并启动用户级 `launchd` 服务；
-- 保留状态文件，避免更新后重复提醒。
-
-检查状态：
-
-```bash
-./scripts/status-macos.sh
-```
-
-从 GitHub 拉取新版代码后更新运行副本：
-
-```bash
-git pull
-./scripts/update-macos.sh
-```
-
-停止服务但保留配置和状态：
-
-```bash
-./scripts/uninstall-macos.sh
-```
-
-## セットアップ
-
-Python 3.13 以上と `uv` を推奨します。
+Python 3.13 and `uv` are recommended:
 
 ```bash
 uv sync --dev
 cp .env.example .env
+cp subscriptions.example.yaml subscriptions.yaml
 ```
 
-`.env` に Discord Webhook と、必要なら SMTP 設定を記入します。購読条件は
-`subscriptions.yaml` にあります。秘密情報を Git に追加しないでください。
-
-この環境のように `uv` がない場合は、標準の仮想環境でも実行できます。
+If `uv` is unavailable, use a standard virtual environment:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 ```
 
-## 安全な初回確認
+Create a watch rule with the English setup wizard:
+
+```bash
+.venv/bin/apple-refurb-reminder setup
+```
+
+Add or manage configuration later:
+
+```bash
+.venv/bin/apple-refurb-reminder setup add
+.venv/bin/apple-refurb-reminder setup list
+.venv/bin/apple-refurb-reminder setup edit RULE_ID
+.venv/bin/apple-refurb-reminder setup remove RULE_ID
+.venv/bin/apple-refurb-reminder setup notifications
+.venv/bin/apple-refurb-reminder setup region US
+```
+
+The wizard loads current choices from the selected regional Apple catalog.
+Manual entry remains available for configurations that are temporarily out of
+stock. A region change archives the old rules and state, resets stock history,
+and keeps notification settings.
+
+## Safe verification
 
 ```bash
 .venv/bin/apple-refurb-reminder validate-config
@@ -75,59 +75,52 @@ python3 -m venv .venv
 .venv/bin/apple-refurb-reminder test-notifications
 ```
 
-実在庫がないことを確認したうえで TEST の無在庫通知を送りたい場合：
-
-```bash
-.venv/bin/apple-refurb-reminder check-once --send-test-if-empty
-```
-
-長期監視：
+Start the long-running monitor:
 
 ```bash
 .venv/bin/apple-refurb-reminder run
 ```
 
-状態確認：
+The default interval is 10 minutes. The hard minimum is 5 minutes.
+
+## Secrets
+
+V1 stores Discord webhooks and SMTP passwords in macOS Keychain. Experimental
+Linux use falls back to a local secret file with `0600` permissions. Secrets are
+never written to the generated `.env` file or echoed by the setup wizard.
+
+Selected notification channels must pass a TEST delivery before the new
+configuration is saved.
+
+## Reliability
+
+- Catalog data prefilters candidates before product detail pages are requested.
+- Detail requests are shared across rules, limited to three concurrent requests,
+  and cached persistently.
+- Network errors, timeouts, unexpected pages, suspicious bot checks, and parser
+  anomalies do not count as product absence.
+- A category incident opens after three consecutive failures. Other successful
+  categories continue normally, and a recovery notification is sent when the
+  failed category works again.
+- Old absent listings and unused detail cache entries are pruned after 30 days.
+- The project collects no telemetry.
+
+## Tests
 
 ```bash
-.venv/bin/apple-refurb-reminder status
-```
-
-## テスト
-
-```bash
-.venv/bin/pytest
+.venv/bin/pytest -q
 .venv/bin/ruff check .
 ```
 
-## launchd
+## Project status and releases
 
-macOS のプライバシー保護により、`launchd` は `Documents` 内の実行ファイルを直接起動
-できない場合があります。この端末では、実行用コピーを次の場所へ配置します。
+Stable releases use semantic versioning and Git tags. Updates are manual; V1
+will include a backup, migration, validation, and rollback-safe macOS update
+path before the Draft PR is eligible to merge.
 
-```text
-~/Library/Application Support/Apple Refurb Reminder
-```
+## Disclaimer
 
-LaunchAgent は `~/Library/LaunchAgents/com.apple-refurb-reminder.plist` にインストール
-されます。ログイン時に起動し、異常終了時に再起動します。開発元のコードや設定を変更した
-場合は、実行用コピーへ再デプロイして LaunchAgent を再起動する必要があります。
-
-状態確認：
-
-```bash
-launchctl print gui/$(id -u)/com.apple-refurb-reminder
-```
-
-停止：
-
-```bash
-launchctl bootout gui/$(id -u)/com.apple-refurb-reminder
-```
-
-再登録：
-
-```bash
-launchctl bootstrap gui/$(id -u) \
-  "$HOME/Library/LaunchAgents/com.apple-refurb-reminder.plist"
-```
+This project is not affiliated with or endorsed by Apple Inc. Availability,
+prices, and page structures can change without notice. Use the software
+responsibly and comply with Apple's website terms and applicable local rules.
+The software is provided without warranty under the [MIT License](LICENSE).

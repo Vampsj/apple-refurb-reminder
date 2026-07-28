@@ -1,9 +1,26 @@
 [project]
 name = "apple-refurb-reminder"
-version = "0.1.0"
-description = "Monitor Apple Japan refurbished listings and send stock notifications."
+version = "1.0.0b1"
+description = "Monitor regional Apple refurbished inventory and send stock notifications."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "JUNJIE ZHOU" }]
 requires-python = ">=3.13"
 dependencies = ["PyYAML>=6.0.2"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: MacOS :: MacOS X",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Monitoring",
+]
+
+[project.urls]
+Homepage = "https://github.com/Vampsj/apple-refurb-reminder"
+Issues = "https://github.com/Vampsj/apple-refurb-reminder/issues"
+Repository = "https://github.com/Vampsj/apple-refurb-reminder"
 
 [project.scripts]
 apple-refurb-reminder = "apple_refurb_reminder.cli:main"

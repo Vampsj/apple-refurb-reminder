@@ -7,8 +7,10 @@ from pathlib import Path
 
 from .config import ConfigError, Settings, load_settings
 from .logging_setup import configure_logging
+from .models import Region
 from .notify import DiscordChannel, EmailChannel, render_batch
 from .service import Monitor, run_forever
+from .setup_cli import handle_setup
 from .state import StateError, StateStore, empty_state, utc_now
 
 
@@ -27,6 +29,27 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("status")
     reset = sub.add_parser("reset-state")
     reset.add_argument("--yes", action="store_true")
+    setup = sub.add_parser("setup", help="Manage watch rules and notification settings")
+    setup_sub = setup.add_subparsers(dest="setup_command")
+    setup_sub.add_parser("list", help="List the configured region and watch rules")
+    add = setup_sub.add_parser("add", help="Add a watch rule (maximum: 3)")
+    add.add_argument("--region", choices=[value.value for value in Region])
+    add.add_argument("--id")
+    add.add_argument("--category", choices=["mac", "iphone", "ipad"])
+    add.add_argument("--model")
+    add.add_argument("--storage")
+    add.add_argument("--color")
+    remove = setup_sub.add_parser("remove", help="Remove a watch rule")
+    remove.add_argument("rule_id")
+    edit = setup_sub.add_parser("edit", help="Replace an existing watch rule")
+    edit.add_argument("rule_id")
+    region = setup_sub.add_parser("region", help="Change region and rebuild rules")
+    region.add_argument("new_region", choices=[value.value for value in Region])
+    setup_sub.add_parser(
+        "notifications",
+        help="Configure and test Discord, Email, or both",
+    )
+    setup_sub.add_parser("migrate", help="Migrate a schema-v1 watch file to schema v2")
     return parser
 
 
@@ -37,33 +60,41 @@ def _load(args: argparse.Namespace) -> Settings:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
+        if args.command == "setup":
+            return handle_setup(args)
         settings = _load(args)
         configure_logging(settings.log_dir, args.verbose)
         if args.command == "validate-config":
-            print(f"設定は有効です (fingerprint={settings.fingerprint})")
+            print(f"Configuration is valid (fingerprint={settings.fingerprint})")
             return 0
         if args.command == "test-notifications":
-            rendered = render_batch([], utc_now(), settings.display_timezone, test=True)
+            rendered = render_batch(
+                [],
+                utc_now(),
+                settings.display_timezone,
+                test=True,
+                region=settings.region,
+            )
             if settings.discord_webhook:
                 DiscordChannel(settings.discord_webhook).send(rendered)
-            if settings.smtp_host:
+            if settings.email:
                 EmailChannel(settings).send(rendered)
-            if not settings.discord_webhook and not settings.smtp_host:
+            if not settings.discord_webhook and not settings.email:
                 raise ConfigError("通知チャネルが設定されていません")
-            print("TEST 通知を送信しました")
+            print("TEST notification sent.")
             return 0
         if args.command == "run":
             run_forever(settings)
             return 0
         if args.command == "reset-state":
             if not args.yes:
-                answer = input("状態をリセットしますか？ [y/N] ")
+                answer = input("Reset all monitor state? [y/N] ")
                 if answer.lower() != "y":
-                    print("キャンセルしました")
+                    print("Cancelled.")
                     return 1
             with StateStore(settings.state_file) as store:
                 store.save(empty_state())
-            print("状態をリセットしました")
+            print("Monitor state reset.")
             return 0
         if args.command == "status":
             with StateStore(settings.state_file) as store:
@@ -104,10 +135,10 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 0
     except (ConfigError, StateError) as exc:
-        print(f"エラー: {exc}", file=sys.stderr)
+        print(f"Error: {exc}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"実行に失敗しました: {exc}", file=sys.stderr)
+        print(f"Execution failed: {exc}", file=sys.stderr)
         return 1
     return 0
 

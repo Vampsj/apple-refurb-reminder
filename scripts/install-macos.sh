@@ -4,79 +4,79 @@ set -euo pipefail
 label="com.apple-refurb-reminder"
 project_dir="$(cd "$(dirname "$0")/.." && pwd)"
 runtime_dir="$HOME/Library/Application Support/Apple Refurb Reminder"
+releases_dir="$runtime_dir/releases"
 agent_dir="$HOME/Library/LaunchAgents"
 agent_path="$agent_dir/$label.plist"
 python_version="3.13"
+release_id="$(date -u +%Y%m%dT%H%M%SZ)"
+candidate="$releases_dir/$release_id"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  echo "このインストーラは macOS 専用です。" >&2
+  echo "This installer supports macOS only." >&2
   exit 1
 fi
 
 if ! command -v uv >/dev/null 2>&1; then
-  if command -v brew >/dev/null 2>&1; then
-    echo "uv を Homebrew でインストールします..."
-    brew install uv
-  else
-    echo "uv が必要です。先に https://docs.astral.sh/uv/ から uv をインストールしてください。" >&2
+  echo "Apple Refurb Reminder requires uv."
+  echo "Official installer: https://docs.astral.sh/uv/getting-started/installation/"
+  read -r -p "Run Astral's official uv installer now? [y/N] " install_uv
+  if [[ "$install_uv" != "y" && "$install_uv" != "Y" ]]; then
+    echo "Installation cancelled. Install uv and run this script again."
+    exit 1
+  fi
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  export PATH="$HOME/.local/bin:$PATH"
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "uv was installed but is not available on PATH. Open a new terminal and retry." >&2
     exit 1
   fi
 fi
 
-echo "実行環境を準備しています..."
-mkdir -p "$runtime_dir/data" "$runtime_dir/logs" "$agent_dir"
+echo "Preparing isolated release $release_id..."
+mkdir -p "$candidate" "$runtime_dir/data" "$runtime_dir/logs" "$agent_dir"
 uv python install "$python_version"
-uv venv --python "$python_version" "$runtime_dir/.venv"
-uv pip install --python "$runtime_dir/.venv/bin/python" "$project_dir"
-cp "$project_dir/subscriptions.yaml" "$runtime_dir/subscriptions.yaml"
+uv venv --python "$python_version" "$candidate/.venv"
+uv pip install --python "$candidate/.venv/bin/python" "$project_dir"
 
+new_environment="false"
 if [[ ! -f "$runtime_dir/.env" ]]; then
-  echo
-  echo "通知設定を入力します。秘密情報は画面に再表示されません。"
-  read -r -p "Discord Webhook URL: " discord_webhook
-  read -r -p "Gmail 送信元（Emailを使わない場合は空欄）: " gmail_address
-
-  smtp_password=""
-  email_to=""
-  smtp_host=""
-  if [[ -n "$gmail_address" ]]; then
-    smtp_host="smtp.gmail.com"
-    read -r -s -p "Google 16桁アプリパスワード: " smtp_password
-    echo
-    read -r -p "通知先メールアドレス [$gmail_address]: " email_to
-    email_to="${email_to:-$gmail_address}"
-  fi
-
-  old_umask="$(umask)"
-  umask 077
   {
     printf '%s\n' \
-      "APPLE_REGION=JP" \
-      "APPLE_LOCALE=ja-JP" \
-      "DISPLAY_TIMEZONE=Asia/Tokyo" \
       "CHECK_INTERVAL_SECONDS=600" \
       "STATE_FILE=./data/state.json" \
       "LOG_DIR=./logs" \
-      "DETAIL_CONCURRENCY=3" \
-      "" \
-      "DISCORD_WEBHOOK=$discord_webhook" \
-      "" \
-      "SMTP_HOST=$smtp_host" \
-      "SMTP_PORT=587" \
-      "SMTP_USERNAME=$gmail_address" \
-      "SMTP_PASSWORD=$smtp_password" \
-      "EMAIL_FROM=$gmail_address" \
-      "EMAIL_TO=$email_to" \
-      "SMTP_USE_TLS=true"
+      "DETAIL_CONCURRENCY=3"
   } >"$runtime_dir/.env"
-  umask "$old_umask"
-else
-  echo "既存の .env を保持します。"
+  chmod 600 "$runtime_dir/.env"
+  new_environment="true"
 fi
 
-chmod 600 "$runtime_dir/.env"
+if [[ ! -f "$runtime_dir/subscriptions.yaml" ]]; then
+  echo
+  echo "Starting the English watch-rule setup wizard..."
+  (
+    cd "$runtime_dir"
+    "$candidate/.venv/bin/apple-refurb-reminder" setup
+  )
+fi
 
-"$runtime_dir/.venv/bin/python" - "$runtime_dir" "$agent_path" <<'PY'
+if [[ "$new_environment" == "true" ]] ||
+  ! grep -Eq '^(NOTIFICATION_MODE|DISCORD_WEBHOOK|SMTP_HOST)=.+' "$runtime_dir/.env"; then
+  echo
+  echo "Configuring notification delivery..."
+  (
+    cd "$runtime_dir"
+    "$candidate/.venv/bin/apple-refurb-reminder" setup notifications
+  )
+else
+  echo "Existing notification configuration found; keeping it unchanged."
+fi
+(
+  cd "$runtime_dir"
+  "$candidate/.venv/bin/apple-refurb-reminder" validate-config
+)
+
+"$candidate/.venv/bin/python" - "$runtime_dir" "$agent_path" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
@@ -85,7 +85,10 @@ runtime = Path(sys.argv[1])
 agent = Path(sys.argv[2])
 payload = {
     "Label": "com.apple-refurb-reminder",
-    "ProgramArguments": [str(runtime / ".venv/bin/apple-refurb-reminder"), "run"],
+    "ProgramArguments": [
+        str(runtime / "current/.venv/bin/apple-refurb-reminder"),
+        "run",
+    ],
     "WorkingDirectory": str(runtime),
     "RunAtLoad": True,
     "KeepAlive": {"SuccessfulExit": False},
@@ -98,18 +101,26 @@ with agent.open("wb") as handle:
     plistlib.dump(payload, handle)
 PY
 
-echo "設定を検証しています..."
-(
-  cd "$runtime_dir"
-  .venv/bin/apple-refurb-reminder validate-config
-)
+ln -s "$candidate" "$runtime_dir/current.next"
+mv -fh "$runtime_dir/current.next" "$runtime_dir/current"
 
 domain="gui/$(id -u)"
 launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
-launchctl bootstrap "$domain" "$agent_path"
+if ! launchctl bootstrap "$domain" "$agent_path"; then
+  echo "LaunchAgent installation failed. The release remains available at:" >&2
+  echo "$candidate" >&2
+  exit 1
+fi
 launchctl kickstart -k "$domain/$label"
+sleep 2
+if ! launchctl print "$domain/$label" | grep -q "state = running"; then
+  launchctl bootout "$domain/$label" >/dev/null 2>&1 || true
+  echo "The service exited during its startup check." >&2
+  echo "Review: $runtime_dir/logs/launchd.err.log" >&2
+  exit 1
+fi
 
 echo
-echo "インストールが完了しました。"
-echo "状態確認: $project_dir/scripts/status-macos.sh"
-echo "ログ: tail -f \"$runtime_dir/logs/monitor.log\""
+echo "Installation complete."
+echo "Status: $project_dir/scripts/status-macos.sh"
+echo "Logs: tail -f \"$runtime_dir/logs/monitor.log\""
